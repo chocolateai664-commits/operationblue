@@ -11,6 +11,7 @@ interface CompareViewProps {
 }
 
 const modelColors: Record<string, string> = {
+  ollama: "text-model-orange border-model-orange/30",
   flash: "text-model-green border-model-green/30",
   gemini: "text-model-blue border-model-blue/30",
   "gpt-5": "text-model-purple border-model-purple/30",
@@ -18,7 +19,7 @@ const modelColors: Record<string, string> = {
 
 export function CompareView({ results }: CompareViewProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 py-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 py-4">
       {results.map((r) => (
         <div
           key={r.model}

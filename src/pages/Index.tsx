@@ -5,7 +5,9 @@ import { ChatMessage } from "@/components/chat/ChatMessage";
 import { CompareView } from "@/components/chat/CompareView";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
-import { Sparkles } from "lucide-react";
+import { streamOllama, checkOllamaHealth } from "@/lib/ollama";
+import { Sparkles, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
 
 interface Message {
   id: string;
@@ -24,22 +26,22 @@ type ChatEntry =
   | { type: "message"; data: Message }
   | { type: "compare"; data: CompareEntry };
 
-// Simulated responses per model
+// Mock responses for cloud models (placeholder until backend is wired)
 const mockResponses: Record<string, string[]> = {
   flash: [
-    "Here's a quick answer! Flash models prioritize speed over depth. This response was generated in milliseconds.",
-    "Flash mode activated ⚡ I process requests at lightning speed with optimized inference.",
-    "Speed-optimized response ready. Flash models trade some nuance for rapid generation.",
+    "Here's a quick answer! Flash models prioritize speed over depth.",
+    "Flash mode activated ⚡ Speed-optimized response ready.",
+    "Speed-first response. Flash trades nuance for rapid generation.",
   ],
   gemini: [
-    "As a Gemini Pro model, I can provide detailed, nuanced analysis. Let me break this down comprehensively with multiple perspectives and thorough reasoning.",
-    "Gemini Pro here — I excel at multi-step reasoning and can handle complex queries with structured, detailed outputs.",
-    "Processing with Gemini Pro capabilities. I offer strong multimodal understanding and extended context analysis.",
+    "As Gemini Pro, I provide detailed, nuanced analysis with multi-step reasoning.",
+    "Gemini Pro — I excel at complex queries with structured, detailed outputs.",
+    "Processing with Gemini Pro. Strong multimodal understanding and context analysis.",
   ],
   "gpt-5": [
-    "GPT-5 response: I represent the frontier of language understanding. My responses leverage advanced reasoning, nuanced context awareness, and sophisticated language generation.",
-    "As GPT-5, I bring state-of-the-art capabilities including deep reasoning, creative generation, and precise instruction following.",
-    "GPT-5 engaged — I can handle complex, multi-faceted queries with high accuracy and nuanced understanding of context and intent.",
+    "GPT-5: Advanced reasoning, nuanced context awareness, and sophisticated generation.",
+    "GPT-5 brings state-of-the-art deep reasoning and creative generation.",
+    "GPT-5 engaged — handling complex queries with high accuracy and nuanced understanding.",
   ],
 };
 
@@ -53,13 +55,33 @@ const Index = () => {
   const [mode, setMode] = useState<ChatMode>("single");
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [ollamaOnline, setOllamaOnline] = useState<boolean | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Check Ollama health on mount and when model changes to ollama
+  useEffect(() => {
+    if (model === "ollama" || mode === "compare") {
+      checkOllamaHealth().then(setOllamaOnline);
+    }
+  }, [model, mode]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [entries, isLoading]);
+
+  const getModelResponse = useCallback(
+    async (targetModel: string, text: string): Promise<string> => {
+      if (targetModel === "ollama") {
+        return await streamOllama(text);
+      }
+      // Mock delay + response for cloud models
+      await new Promise((r) => setTimeout(r, 600 + Math.random() * 800));
+      return getRandomResponse(targetModel);
+    },
+    []
+  );
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -70,38 +92,60 @@ const Index = () => {
       setEntries((prev) => [...prev, userEntry]);
       setIsLoading(true);
 
-      // Simulate API delay
-      await new Promise((r) => setTimeout(r, 800 + Math.random() * 1200));
-
-      if (mode === "compare") {
-        const compareEntry: ChatEntry = {
-          type: "compare",
-          data: {
-            id: crypto.randomUUID(),
-            userMessage: text,
-            results: (["flash", "gemini", "gpt-5"] as const).map((m) => ({
+      try {
+        if (mode === "compare") {
+          const models: AIModel[] = ["ollama", "flash", "gemini", "gpt-5"];
+          const results = await Promise.allSettled(
+            models.map(async (m) => ({
               model: m,
-              content: getRandomResponse(m),
-            })),
-          },
-        };
-        setEntries((prev) => [...prev, compareEntry]);
-      } else {
-        const assistantEntry: ChatEntry = {
+              content: await getModelResponse(m, text),
+            }))
+          );
+
+          const compareEntry: ChatEntry = {
+            type: "compare",
+            data: {
+              id: crypto.randomUUID(),
+              userMessage: text,
+              results: results.map((r, i) =>
+                r.status === "fulfilled"
+                  ? r.value
+                  : { model: models[i], content: `⚠️ Error: ${(r.reason as Error)?.message || "Failed"}` }
+              ),
+            },
+          };
+          setEntries((prev) => [...prev, compareEntry]);
+        } else {
+          const content = await getModelResponse(model, text);
+          const assistantEntry: ChatEntry = {
+            type: "message",
+            data: {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content,
+              model,
+            },
+          };
+          setEntries((prev) => [...prev, assistantEntry]);
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error";
+        toast.error(errorMsg);
+        const errorEntry: ChatEntry = {
           type: "message",
           data: {
             id: crypto.randomUUID(),
             role: "assistant",
-            content: getRandomResponse(model),
+            content: `⚠️ ${errorMsg}`,
             model,
           },
         };
-        setEntries((prev) => [...prev, assistantEntry]);
+        setEntries((prev) => [...prev, errorEntry]);
       }
 
       setIsLoading(false);
     },
-    [model, mode]
+    [model, mode, getModelResponse]
   );
 
   return (
@@ -121,6 +165,18 @@ const Index = () => {
         </div>
       </header>
 
+      {/* Ollama status banner */}
+      {model === "ollama" && ollamaOnline === false && (
+        <div className="flex items-center gap-2 px-6 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>
+            Ollama is not running locally. Start it with{" "}
+            <code className="font-mono bg-destructive/10 px-1 rounded">ollama serve</code> and make sure a model like{" "}
+            <code className="font-mono bg-destructive/10 px-1 rounded">llama3</code> is pulled.
+          </span>
+        </div>
+      )}
+
       {/* Chat area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="max-w-3xl mx-auto px-4">
@@ -133,6 +189,7 @@ const Index = () => {
                 <h2 className="text-xl font-semibold mb-1">What can I help you with?</h2>
                 <p className="text-sm text-muted-foreground max-w-md">
                   Choose a model, pick single or compare mode, and start chatting.
+                  {" "}Select <strong className="text-model-orange">Ollama</strong> for free local AI.
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2 mt-2">
@@ -174,7 +231,7 @@ const Index = () => {
         <div className="max-w-3xl mx-auto px-4 py-4">
           <ChatInput onSend={handleSend} disabled={isLoading} />
           <p className="text-[10px] text-muted-foreground text-center mt-2">
-            Multi-AI Chat can make mistakes. Verify important information.
+            Multi-AI Chat • Ollama runs locally for free • Cloud models are simulated
           </p>
         </div>
       </div>
