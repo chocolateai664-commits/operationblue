@@ -54,6 +54,7 @@ export default {
         "model-purple": "hsl(var(--model-purple))",
         "model-blue": "hsl(var(--model-blue))",
         "model-green": "hsl(var(--model-green))",
+        "model-orange": "hsl(var(--model-orange))",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

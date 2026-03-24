@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export type AIModel = "gemini" | "gpt-5" | "flash";
+export type AIModel = "ollama" | "gemini" | "gpt-5" | "flash";
 
 interface ModelSelectorProps {
   selected: AIModel;
@@ -8,6 +8,7 @@ interface ModelSelectorProps {
 }
 
 const models: { id: AIModel; label: string; color: string }[] = [
+  { id: "ollama", label: "Ollama", color: "bg-model-orange" },
   { id: "flash", label: "Flash", color: "bg-model-green" },
   { id: "gemini", label: "Gemini Pro", color: "bg-model-blue" },
   { id: "gpt-5", label: "GPT-5", color: "bg-model-purple" },

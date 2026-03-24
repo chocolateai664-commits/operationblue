@@ -11,6 +11,7 @@ interface CompareViewProps {
 }
 
 const modelColors: Record<string, string> = {
+  ollama: "text-model-orange border-model-orange/30",
   flash: "text-model-green border-model-green/30",
   gemini: "text-model-blue border-model-blue/30",
   "gpt-5": "text-model-purple border-model-purple/30",
