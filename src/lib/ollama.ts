@@ -1,4 +1,8 @@
-const OLLAMA_BASE = "http://localhost:11434";
+let OLLAMA_BASE = "http://localhost:11434";
+
+export function setOllamaBase(url: string) {
+  OLLAMA_BASE = url.replace(/\/+$/, "");
+}
 
 export interface OllamaOptions {
   model?: string;
