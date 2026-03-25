@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Settings, Check, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { checkOllamaHealth } from "@/lib/ollama";
+import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
 
 export interface OllamaConfig {
   baseUrl: string;
