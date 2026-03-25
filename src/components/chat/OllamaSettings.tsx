@@ -44,6 +44,7 @@ export function OllamaSettings({ config, onChange }: OllamaSettingsProps) {
 
   const handleSaveUrl = () => {
     onChange({ ...config, baseUrl: url });
+    setOllamaBase(url);
     handleTest();
   };
 
