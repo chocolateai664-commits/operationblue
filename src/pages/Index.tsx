@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ModelSelector, type AIModel } from "@/components/chat/ModelSelector";
+import { ModelSelector } from "@/components/chat/ModelSelector";
 import { ModeToggle, type ChatMode } from "@/components/chat/ModeToggle";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { CompareView } from "@/components/chat/CompareView";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { OllamaSettings, type OllamaConfig } from "@/components/chat/OllamaSettings";
-import { streamOllama, checkOllamaHealth } from "@/lib/ollama";
-import { streamChat } from "@/lib/stream-chat";
-import { Sparkles, AlertCircle } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { streamAIResponse, ALL_MODELS, type AIModel } from "@/api/ai";
+import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
+import { Sparkles, AlertCircle, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 interface Message {
@@ -30,6 +31,7 @@ type ChatEntry =
   | { type: "compare"; data: CompareEntry };
 
 const Index = () => {
+  const { user, signOut } = useAuth();
   const [model, setModel] = useState<AIModel>("flash");
   const [mode, setMode] = useState<ChatMode>("single");
   const [entries, setEntries] = useState<ChatEntry[]>([]);
@@ -54,32 +56,10 @@ const Index = () => {
     }
   }, [entries, isLoading]);
 
-  const getCloudResponse = useCallback(
-    async (targetModel: string, text: string, onDelta: (d: string) => void): Promise<string> => {
-      let full = "";
-      await streamChat({
-        messages: [...conversationRef.current, { role: "user", content: text }],
-        model: targetModel,
-        onDelta: (chunk) => {
-          full += chunk;
-          onDelta(chunk);
-        },
-        onDone: () => {},
-      });
-      return full;
-    },
-    []
-  );
-
-  const getOllamaResponse = useCallback(
-    async (text: string, onDelta: (d: string) => void): Promise<string> => {
-      return await streamOllama(text, {
-        model: ollamaConfig.model,
-        onDelta,
-      });
-    },
-    [ollamaConfig.model]
-  );
+  const handleOllamaConfigChange = useCallback((config: OllamaConfig) => {
+    setOllamaConfig(config);
+    setOllamaBase(config.baseUrl);
+  }, []);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -93,10 +73,8 @@ const Index = () => {
 
       try {
         if (mode === "compare") {
-          const models: AIModel[] = ["ollama", "flash", "gemini", "gpt-5"];
           const compareId = crypto.randomUUID();
 
-          // Initialize compare entry
           setEntries((prev) => [
             ...prev,
             {
@@ -104,7 +82,7 @@ const Index = () => {
               data: {
                 id: compareId,
                 userMessage: text,
-                results: models.map((m) => ({ model: m, content: "", isStreaming: true })),
+                results: ALL_MODELS.map((m) => ({ model: m, content: "", isStreaming: true })),
               },
             },
           ]);
@@ -128,29 +106,27 @@ const Index = () => {
           };
 
           await Promise.allSettled(
-            models.map(async (m) => {
+            ALL_MODELS.map(async (m) => {
               let accumulated = "";
               try {
-                if (m === "ollama") {
-                  await getOllamaResponse(text, (chunk) => {
+                await streamAIResponse({
+                  model: m,
+                  prompt: text,
+                  conversationHistory: conversationRef.current.slice(0, -1),
+                  ollamaModel: ollamaConfig.model,
+                  onDelta: (chunk) => {
                     accumulated += chunk;
                     updateCompareResult(m, accumulated, false);
-                  });
-                } else {
-                  await getCloudResponse(m, text, (chunk) => {
-                    accumulated += chunk;
-                    updateCompareResult(m, accumulated, false);
-                  });
-                }
-                updateCompareResult(m, accumulated, true);
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : "Failed";
-                updateCompareResult(m, `⚠️ ${msg}`, true);
+                  },
+                  onDone: () => updateCompareResult(m, accumulated, true),
+                  onError: (msg) => updateCompareResult(m, `⚠️ ${msg}`, true),
+                });
+              } catch {
+                // error already handled via onError
               }
             })
           );
         } else {
-          // Single mode with streaming
           const assistantId = crypto.randomUUID();
           setEntries((prev) => [
             ...prev,
@@ -171,17 +147,18 @@ const Index = () => {
             );
           };
 
-          if (model === "ollama") {
-            accumulated = await getOllamaResponse(text, (chunk) => {
+          accumulated = await streamAIResponse({
+            model,
+            prompt: text,
+            conversationHistory: conversationRef.current.slice(0, -1),
+            ollamaModel: ollamaConfig.model,
+            onDelta: (chunk) => {
               accumulated += chunk;
               updateAssistant(accumulated, true);
-            });
-          } else {
-            accumulated = await getCloudResponse(model, text, (chunk) => {
-              accumulated += chunk;
-              updateAssistant(accumulated, true);
-            });
-          }
+            },
+            onDone: () => {},
+            onError: (msg) => toast.error(msg),
+          });
 
           updateAssistant(accumulated, false);
           conversationRef.current.push({ role: "assistant", content: accumulated });
@@ -189,18 +166,11 @@ const Index = () => {
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : "Unknown error";
         toast.error(errorMsg);
-        setEntries((prev) => [
-          ...prev,
-          {
-            type: "message",
-            data: { id: crypto.randomUUID(), role: "assistant", content: `⚠️ ${errorMsg}`, model },
-          },
-        ]);
       }
 
       setIsLoading(false);
     },
-    [model, mode, getCloudResponse, getOllamaResponse]
+    [model, mode, ollamaConfig.model]
   );
 
   return (
@@ -211,14 +181,22 @@ const Index = () => {
           <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
             <Sparkles className="w-4 h-4 text-primary" />
           </div>
-          <h1 className="text-base font-semibold tracking-tight">Multi-AI Chat</h1>
+          <h1 className="text-base font-semibold tracking-tight">OptiNeural</h1>
         </div>
         <div className="flex items-center gap-3">
           <ModelSelector selected={model} onSelect={setModel} />
           <div className="w-px h-6 bg-border" />
           <ModeToggle mode={mode} onToggle={setMode} />
           <div className="w-px h-6 bg-border" />
-          <OllamaSettings config={ollamaConfig} onChange={setOllamaConfig} />
+          <OllamaSettings config={ollamaConfig} onChange={handleOllamaConfigChange} />
+          <div className="w-px h-6 bg-border" />
+          <button
+            onClick={signOut}
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
         </div>
       </header>
 
@@ -292,7 +270,7 @@ const Index = () => {
         <div className="max-w-3xl mx-auto px-4 py-4">
           <ChatInput onSend={handleSend} disabled={isLoading} />
           <p className="text-[10px] text-muted-foreground text-center mt-2">
-            Multi-AI Chat • Flash, Gemini & GPT-5 powered by Lovable AI • Ollama runs locally for free
+            OptiNeural • Flash, Gemini & GPT-5 powered by Lovable AI • Ollama runs locally for free
           </p>
         </div>
       </div>
