@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { User, Sparkles } from "lucide-react";
+import { MarkdownContent } from "./MarkdownContent";
 
 interface ChatMessageProps {
   role: "user" | "assistant";
