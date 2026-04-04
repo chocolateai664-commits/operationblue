@@ -36,7 +36,7 @@ export function ChatMessage({ role, content, model, isStreaming }: ChatMessagePr
               : "bg-secondary/60 text-foreground border border-border"
           )}
         >
-          {content}
+          <MarkdownContent content={content} />
           {isStreaming && (
             <span className="inline-flex gap-0.5 ml-1">
               <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
