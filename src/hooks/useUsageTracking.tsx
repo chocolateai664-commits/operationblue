@@ -10,6 +10,17 @@ export function useUsageTracking() {
   const [isPro, setIsPro] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  const checkSubscription = useCallback(async () => {
+    try {
+      const { data } = await supabase.functions.invoke("check-subscription");
+      if (data?.subscribed) {
+        setIsPro(true);
+      }
+    } catch {
+      // Subscription check failed, keep current state
+    }
+  }, []);
+
   const fetchUsage = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
@@ -22,7 +33,6 @@ export function useUsageTracking() {
       setTotalRequests(data.total_requests);
       setIsPro(data.is_pro);
     } else {
-      // Create initial record
       await supabase
         .from("usage_tracking")
         .insert({ user_id: user.id, total_requests: 0, is_pro: false });
@@ -35,6 +45,14 @@ export function useUsageTracking() {
   useEffect(() => {
     fetchUsage();
   }, [fetchUsage]);
+
+  // Check subscription on load and periodically
+  useEffect(() => {
+    if (!user) return;
+    checkSubscription();
+    const interval = setInterval(checkSubscription, 60000);
+    return () => clearInterval(interval);
+  }, [user, checkSubscription]);
 
   const incrementUsage = useCallback(async () => {
     if (!user) return;
@@ -50,5 +68,5 @@ export function useUsageTracking() {
   const canUseAI = isPro || totalRequests < FREE_LIMIT;
   const remainingFree = Math.max(0, FREE_LIMIT - totalRequests);
 
-  return { totalRequests, isPro, loading, canUseAI, remainingFree, incrementUsage, FREE_LIMIT };
+  return { totalRequests, isPro, loading, canUseAI, remainingFree, incrementUsage, FREE_LIMIT, checkSubscription };
 }
