@@ -197,6 +197,7 @@ const Index = () => {
           onSelect={setActiveId}
           onNew={handleNewChat}
           onDelete={deleteConversation}
+          isPro={isPro}
         />
       )}
 
