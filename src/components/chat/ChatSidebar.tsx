@@ -1,4 +1,6 @@
-import { Plus, MessageSquare, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { Plus, MessageSquare, Trash2, Crown, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import type { Conversation } from "@/hooks/useConversations";
 
 interface ChatSidebarProps {
@@ -7,9 +9,25 @@ interface ChatSidebarProps {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  isPro?: boolean;
 }
 
-export function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete }: ChatSidebarProps) {
+export function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete, isPro }: ChatSidebarProps) {
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const handleManage = async () => {
+    setPortalLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("customer-portal");
+      if (error) throw error;
+      if (data?.url) window.open(data.url, "_blank");
+    } catch (err) {
+      console.error("Portal error:", err);
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
   return (
     <div className="w-64 h-full flex flex-col bg-sidebar-background border-r border-sidebar-border">
       <div className="p-3">
@@ -50,6 +68,19 @@ export function ChatSidebar({ conversations, activeId, onSelect, onNew, onDelete
           </div>
         ))}
       </div>
+
+      {isPro && (
+        <div className="p-3 border-t border-sidebar-border">
+          <button
+            onClick={handleManage}
+            disabled={portalLoading}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+          >
+            {portalLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crown className="w-3.5 h-3.5" />}
+            Manage Subscription
+          </button>
+        </div>
+      )}
     </div>
   );
 }

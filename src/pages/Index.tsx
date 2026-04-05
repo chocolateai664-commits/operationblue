@@ -14,7 +14,8 @@ import { useMessages } from "@/hooks/useMessages";
 import { useUsageTracking } from "@/hooks/useUsageTracking";
 import { streamAIResponse, ALL_MODELS, type AIModel } from "@/api/ai";
 import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
-import { Sparkles, AlertCircle, LogOut, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Sparkles, AlertCircle, LogOut, PanelLeftClose, PanelLeft, Crown } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 interface LocalEntry {
@@ -32,7 +33,8 @@ const Index = () => {
   const { signOut } = useAuth();
   const { conversations, activeId, setActiveId, createConversation, updateTitle, deleteConversation } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
-  const { canUseAI, remainingFree, totalRequests, incrementUsage, FREE_LIMIT } = useUsageTracking();
+  const { canUseAI, remainingFree, totalRequests, incrementUsage, FREE_LIMIT, isPro } = useUsageTracking();
+  const navigate = useNavigate();
 
   const [model, setModel] = useState<AIModel>("flash");
   const [mode, setMode] = useState<ChatMode>("single");
@@ -195,6 +197,7 @@ const Index = () => {
           onSelect={setActiveId}
           onNew={handleNewChat}
           onDelete={deleteConversation}
+          isPro={isPro}
         />
       )}
 
@@ -222,6 +225,14 @@ const Index = () => {
             <ModeToggle mode={mode} onToggle={setMode} />
             <div className="w-px h-5 bg-border" />
             <OllamaSettings config={ollamaConfig} onChange={handleOllamaConfigChange} />
+            <div className="w-px h-5 bg-border" />
+            <button
+              onClick={() => navigate("/pricing")}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+              title="Pricing"
+            >
+              <Crown className="w-3.5 h-3.5" />
+            </button>
             <div className="w-px h-5 bg-border" />
             <button
               onClick={signOut}
