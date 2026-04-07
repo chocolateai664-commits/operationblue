@@ -188,7 +188,7 @@ const Index = () => {
   const showUpgrade = !canUseAI;
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen-safe">
       {/* Sidebar */}
       {sidebarOpen && (
         <ChatSidebar
