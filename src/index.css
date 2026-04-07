@@ -68,6 +68,18 @@
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+  /* WCAG 2.5.8 touch targets for standalone interactive elements */
+  button, [role="button"], input, select, textarea {
+    min-height: 44px;
+  }
+}
+
+/* Tablet landscape orientation */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
+  .h-screen-safe {
+    height: 100vh;
+    height: 100svh;
+  }
 }
 
 @layer utilities {
@@ -81,9 +93,6 @@
     min-height: 100svh;
     min-height: 100dvh;
   }
-}
-
-@layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
