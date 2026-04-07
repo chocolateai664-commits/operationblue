@@ -1,22 +1,26 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Zap, Brain, Shield, ArrowRight, MessageSquare, BarChart3, Globe } from "lucide-react";
+import { Sparkles, Zap, Brain, Shield, ArrowRight, MessageSquare, BarChart3, Globe, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Landing = () => {
   const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen-safe bg-background text-foreground overflow-x-hidden">
       {/* Nav */}
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-background/70 border-b border-border/50">
-        <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between px-4 sm:px-6 py-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-primary" />
             </div>
             <span className="font-bold text-lg tracking-tight">OptiNeural</span>
           </div>
-          <div className="flex items-center gap-3">
+
+          {/* Desktop nav */}
+          <div className="hidden sm:flex items-center gap-3">
             <Button variant="ghost" onClick={() => navigate("/pricing")} className="text-sm">
               Pricing
             </Button>
@@ -27,7 +31,30 @@ const Landing = () => {
               Get Started <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </Button>
           </div>
+
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="sm:hidden p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
+
+        {/* Mobile dropdown */}
+        {menuOpen && (
+          <div className="sm:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 py-4 space-y-2">
+            <Button variant="ghost" onClick={() => { navigate("/pricing"); setMenuOpen(false); }} className="w-full justify-start text-sm">
+              Pricing
+            </Button>
+            <Button variant="ghost" onClick={() => { navigate("/auth"); setMenuOpen(false); }} className="w-full justify-start text-sm">
+              Sign In
+            </Button>
+            <Button onClick={() => { navigate("/auth"); setMenuOpen(false); }} className="w-full text-sm">
+              Get Started <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </div>
+        )}
       </nav>
 
       {/* Hero */}
