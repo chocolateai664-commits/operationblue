@@ -68,26 +68,17 @@
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
-  button, a, [role="button"], input, select, textarea {
+  /* WCAG 2.5.8 touch targets for standalone interactive elements */
+  button, [role="button"], input, select, textarea {
     min-height: 44px;
-    min-width: 44px;
-  }
-  /* Exceptions for inline/icon elements that don't need full touch targets */
-  button svg, a svg, .icon-only {
-    min-height: unset;
-    min-width: unset;
   }
 }
 
-/* Tablet landscape orientation handling */
+/* Tablet landscape orientation */
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1024px) {
   .h-screen-safe {
     height: 100vh;
     height: 100svh;
-  }
-  .chat-header {
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
   }
 }
 
@@ -102,23 +93,6 @@
     min-height: 100svh;
     min-height: 100dvh;
   }
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--border)) transparent;
-  }
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-  }
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 3px;
-  }
-}
-
-@layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
