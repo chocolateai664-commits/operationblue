@@ -52,7 +52,7 @@ export default function Pricing() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen-safe bg-background flex flex-col">
       <header className="flex items-center gap-3 px-6 py-4 border-b border-border">
         <button
           onClick={() => navigate("/")}
