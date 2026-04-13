@@ -56,13 +56,12 @@ export function useUsageTracking() {
 
   const incrementUsage = useCallback(async () => {
     if (!user) return;
-    const newCount = totalRequests + 1;
-    await supabase
-      .from("usage_tracking")
-      .update({ total_requests: newCount })
-      .eq("user_id", user.id);
-    setTotalRequests(newCount);
-    return newCount;
+    const { data, error } = await supabase.rpc("increment_usage");
+    if (!error && data !== null) {
+      setTotalRequests(data);
+      return data;
+    }
+    return totalRequests + 1;
   }, [user, totalRequests]);
 
   const canUseAI = isPro || totalRequests < FREE_LIMIT;
