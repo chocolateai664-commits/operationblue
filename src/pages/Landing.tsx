@@ -42,8 +42,12 @@ const Landing = () => {
         </div>
 
         {/* Mobile dropdown */}
-        {menuOpen && (
-          <div className="sm:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl px-4 py-4 space-y-2">
+        <div
+          className={`sm:hidden overflow-hidden transition-all duration-300 ${
+            menuOpen ? "animate-slide-down border-t border-border/50 bg-background/95 backdrop-blur-xl" : "max-h-0 opacity-0"
+          }`}
+        >
+          <div className="px-4 py-4 space-y-2">
             <Button variant="ghost" onClick={() => { navigate("/pricing"); setMenuOpen(false); }} className="w-full justify-start text-sm">
               Pricing
             </Button>
@@ -54,7 +58,7 @@ const Landing = () => {
               Get Started <ArrowRight className="w-3.5 h-3.5 ml-1" />
             </Button>
           </div>
-        )}
+        </div>
       </nav>
 
       {/* Hero */}
