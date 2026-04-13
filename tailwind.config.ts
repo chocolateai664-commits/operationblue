@@ -84,11 +84,16 @@ export default {
           "0%, 100%": { opacity: "0.4" },
           "50%": { opacity: "1" },
         },
+        "slide-down": {
+          from: { maxHeight: "0", opacity: "0" },
+          to: { maxHeight: "200px", opacity: "1" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "pulse-dot": "pulse-dot 1.4s ease-in-out infinite",
+        "slide-down": "slide-down 0.3s ease-out forwards",
       },
     },
   },
