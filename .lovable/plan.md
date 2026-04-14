@@ -1,196 +1,111 @@
-## Plan: Mobile Nav Animation, File Upload Button, and Navigation Testing
-
-### 1. Add slide-down animation to mobile nav dropdown (Landing.tsx)
-
-- Add a `slide-down` keyframe in `tailwind.config.ts` that animates from `max-height: 0; opacity: 0` to `max-height: 200px; opacity: 1`
-- Replace the conditional `{menuOpen && ...}` with an always-rendered div that toggles between `animate-slide-down` and `hidden` states using `overflow-hidden` and CSS transition classes
-- Apply the animation class to the mobile dropdown container
-
-### 2. Add file upload button to ChatInput
-
-- Add a `+` button (Plus icon from lucide-react) to the left side of the chat input area
-- Wire it to a hidden `<input type="file">` that accepts `.zip,.doc,.docx,.pdf,.txt,.json,.csv,.xml` files
-- On file selection, use the `document--parse_document` pattern client-side — read the file content as text (for text files) or upload to storage for binary docs
-- Create a storage bucket `chat-uploads` via migration for storing uploaded files
-- Parse text-based files client-side and inject their content into the chat message as context
-- For binary files (.zip, .doc, .docx, .pdf), upload to storage and create an edge function to parse them server-side, returning extracted text
-- Display the attached file name as a chip/badge above the input
-
-### 3. Test navigation links
-
-- Use browser tools to open the preview at mobile viewport, open hamburger menu, and click each link to verify correct routing
-
-### Files to create/edit
 
 
-| File                                | Action                                      |
-| ----------------------------------- | ------------------------------------------- |
-| `tailwind.config.ts`                | Add `slide-down` keyframe + animation       |
-| `src/pages/Landing.tsx`             | Apply slide animation to mobile dropdown    |
-| `src/components/chat/ChatInput.tsx` | Add `+` button with file input for uploads  |
-| `src/pages/Index.tsx`               | Pass file data through to chat send handler |
-| `src/hooks/useMessages.tsx`         | Support file content in messages            |
+## Plan: AI Cost Control, File Chunking, Server-Side Limits, and Admin Role
 
+This plan implements the system described in the uploaded document, adapted to the existing architecture (Lovable Cloud edge functions, existing usage tracking, and Supabase auth).
 
-### Technical Details
+### 1. Token Estimation and Cost Tracking Utility
 
-- **Animation**: CSS keyframe approach with `max-height` transition avoids layout jank; `overflow-hidden` prevents content flash
-- **File upload**: Client-side `FileReader` for text files (.txt, .csv, .json, .xml, .md). For .zip files, use JSZip to list/extract text contents. For .doc/.docx/.pdf, upload to storage bucket and note the limitation or use a simple text extraction approach
-- **Accepted types**: `.zip, .doc, .docx, .pdf, .txt, .json, .csv, .xml, .md`
-- **UX**: File chip shows filename + remove button; file content prepended to user message as `[Attached: filename]\n<content>\n---\nUser message. Let AI do the task of responding to the task.` 
-  ```javascript
-  import React, { useRef, useState } from 'react'
-  import { Plus } from 'lucide-react'
+Create `src/utils/cost.ts` with:
+- `estimateTokens(text)` — approximate tokens via `text.length / 4`
+- `calculateCost(model, inputTokens, outputTokens)` — returns cost in USD using a pricing map
+- Pricing map covering the existing models (flash, gemini, gpt-5, ollama)
 
-  const MAX_FILE_SIZE = 500_000
-  const MAX_CONTENT_LENGTH = 10000
-  const MAX_FILES = 20
-  const MAX_TOTAL_SIZE = 1_000_000
+### 2. File Chunking and Summarization
 
-  export default function ChatInput({ onSend }) {
-    const [message, setMessage] = useState('')
-    const [attachedFile, setAttachedFile] = useState(null)
-    const [attachedFiles, setAttachedFiles] = useState([])
+Create `src/utils/chunk.ts`:
+- `chunkText(text, size = 2000): string[]` — splits text into chunks
 
-    const fileInputRef = useRef(null)
-    const folderInputRef = useRef(null)
+Create `supabase/functions/summarize/index.ts` (edge function):
+- Accepts chunks array, calls Lovable AI gateway with a cheap model (gemini-2.5-flash-lite) to summarize each chunk
+- Returns combined summary string
+- Authenticates the user and checks limits before processing
 
-    const handleFileUpload = async (e) => {
-      const file = e.target.files?.[0]
-      if (!file) return
+Update `src/components/chat/ChatInput.tsx`:
+- Instead of raw file content injection, send file content through the summarization pipeline before attaching to message
+- Add a loading state while summarization runs
 
-      if (file.size > MAX_FILE_SIZE) {
-        alert('File too large (max 500KB)')
-        return
-      }
+### 3. Server-Side Usage Limit Enforcement
 
-      const text = await file.text()
-      const content = text.slice(0, MAX_CONTENT_LENGTH)
+**Database migration** — alter `usage_tracking` table:
+- Add columns: `monthly_cost NUMERIC DEFAULT 0`, `monthly_tokens INTEGER DEFAULT 0`, `role TEXT DEFAULT 'user'`
+- Wait — per the user-roles instructions, roles MUST be in a separate table. Create `user_roles` table with `app_role` enum (`user`, `pro`, `admin`).
 
-      setAttachedFile({ name: file.name, content })
-      setAttachedFiles([])
-    }
+**Create `user_roles` table and enum** (migration):
+```sql
+CREATE TYPE public.app_role AS ENUM ('user', 'pro', 'admin');
+CREATE TABLE public.user_roles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  role app_role NOT NULL DEFAULT 'user',
+  UNIQUE (user_id, role)
+);
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+-- Security definer function for role checks
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role app_role) ...
+```
 
-    const handleFolderUpload = async (e) => {
-      const files = Array.from(e.target.files || [])
+**Add cost tracking columns to `usage_tracking`** (migration):
+```sql
+ALTER TABLE usage_tracking
+  ADD COLUMN monthly_cost NUMERIC DEFAULT 0,
+  ADD COLUMN monthly_tokens INTEGER DEFAULT 0,
+  ADD COLUMN cost_reset_at TIMESTAMPTZ DEFAULT date_trunc('month', now());
+```
 
-      let totalSize = 0
-      let processed = []
+**Update `increment_usage` function** to also accept and track tokens + cost, enforce limits:
+- Free: reject if `monthly_cost > 0.50`
+- Pro: reject if `monthly_cost > 7.00`
+- Admin (via `has_role`): no limit, still tracked
 
-      for (const file of files.slice(0, MAX_FILES)) {
-        const isText = /\.(txt|json|csv|xml|md|js|ts|jsx|tsx)$/i.test(file.name)
-        if (!isText) continue
-        if (file.size > 200_000) continue
+**Update `supabase/functions/chat/index.ts`**:
+- Authenticate user from JWT
+- Call a new DB function `check_and_increment_usage(estimated_input_tokens, model)` that checks limits before proceeding
+- After response, estimate output tokens and update cost via another RPC
+- Log model, tokens, cost per request
 
-        const text = await file.text()
-        const truncated = text.slice(0, 5000)
+### 4. Admin Role Support
 
-        totalSize += truncated.length
-        if (totalSize > MAX_TOTAL_SIZE) break
+- Use `user_roles` table (per security guidelines)
+- Admin bypasses cost limits but usage is still tracked
+- No client-side admin check — all enforcement in edge function + DB function
 
-        processed.push({
-          name: file.webkitRelativePath || file.name,
-          content: truncated,
-        })
-      }
+### 5. Performance and Safety Constraints
 
-      setAttachedFiles(processed)
-      setAttachedFile(null)
-    }
+Add constants to the chat edge function:
+- `MAX_INPUT_TOKENS = 8000`
+- `MAX_OUTPUT_TOKENS = 800` (pass to AI gateway)
+- Reject requests exceeding max input before calling AI
 
-    const formatMessage = () => {
-      if (attachedFile) {
-        return `[Attached: ${attachedFile.name}]\n${attachedFile.content}\n---\n${message}`
-      }
+### 6. Request Logging
 
-      if (attachedFiles.length > 0) {
-        const fileBlocks = attachedFiles
-          .map(f => `File: ${f.name}\n${f.content}`)
-          .join('\n\n---\n\n')
+Add a `request_logs` table (migration):
+```sql
+CREATE TABLE public.request_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  cost NUMERIC,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+With RLS: users can SELECT own logs only. Insert handled by security definer function.
 
-        return `[Folder Attachment]\n\n${fileBlocks}\n\n---\n${message}`
-      }
+### Files to Create/Edit
 
-      return message
-    }
+| File | Action |
+|------|--------|
+| `src/utils/cost.ts` | Create — token estimation + cost calculation |
+| `src/utils/chunk.ts` | Create — text chunking utility |
+| `supabase/functions/summarize/index.ts` | Create — chunk summarization edge function |
+| `supabase/functions/chat/index.ts` | Edit — add auth, limit checks, token/cost tracking, max output tokens |
+| `src/hooks/useUsageTracking.tsx` | Edit — expose monthly cost, role info |
+| `src/components/chat/ChatInput.tsx` | Edit — summarize file content before attaching |
+| `src/api/ai.ts` | Edit — pass token estimates through |
+| Migration files | Create — user_roles table, usage_tracking columns, request_logs table, updated DB functions |
 
-    const handleSend = () => {
-      if (!message.trim() && !attachedFile && attachedFiles.length === 0) return
+### Non-Goals (per document)
+- No PDF/DOC parsing, ZIP extraction, vector DB, embeddings, or RAG
 
-      const finalMessage = formatMessage()
-      onSend(finalMessage)
-
-      setMessage('')
-      setAttachedFile(null)
-      setAttachedFiles([])
-    }
-
-    return (
-      <div className="w-full border-t p-3">
-        {/* Attachments */}
-        {attachedFile && (
-          <div className="mb-2 flex items-center gap-2 bg-muted px-2 py-1 rounded">
-            <span className="text-sm">{attachedFile.name}</span>
-            <button onClick={() => setAttachedFile(null)}>✕</button>
-          </div>
-        )}
-
-        {attachedFiles.length > 0 && (
-          <div className="mb-2 flex items-center gap-2 bg-muted px-2 py-1 rounded">
-            📁 {attachedFiles.length} files attached
-            <button onClick={() => setAttachedFiles([])}>✕</button>
-          </div>
-        )}
-
-        {/* Input Row */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2"
-          >
-            <Plus size={18} />
-          </button>
-
-          <button
-            onClick={() => folderInputRef.current?.click()}
-            className="p-2 text-xs"
-          >
-            📁
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept=".txt,.json,.csv,.xml,.md,.js,.ts,.jsx,.tsx"
-            onChange={handleFileUpload}
-          />
-
-          <input
-            ref={folderInputRef}
-            type="file"
-            className="hidden"
-            webkitdirectory="true"
-            multiple
-            onChange={handleFolderUpload}
-          />
-
-          <input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type a message..."
-            className="flex-1 border rounded px-3 py-2"
-          />
-
-          <button
-            onClick={handleSend}
-            className="px-4 py-2 bg-black text-white rounded"
-          >
-            Send
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  ```
