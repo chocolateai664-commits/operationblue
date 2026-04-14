@@ -69,14 +69,6 @@ serve(async (req) => {
     const estimatedCost = calculateCost(model || "flash", inputTokens, MAX_OUTPUT_TOKENS);
 
     if (userId) {
-      const adminClient = createClient(supabaseUrl, serviceRoleKey);
-      // Use service role to call increment_usage on behalf of user via raw SQL
-      const { data, error } = await adminClient.rpc("increment_usage", {
-        _input_tokens: inputTokens,
-        _cost: estimatedCost,
-      });
-      
-      // We need to call as the user, not service role
       const userClient = createClient(supabaseUrl, supabaseKey, {
         global: { headers: { Authorization: authHeader! } },
       });
