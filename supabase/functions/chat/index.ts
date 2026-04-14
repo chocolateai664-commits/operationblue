@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,20 +7,97 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const MAX_INPUT_TOKENS = 8000;
+const MAX_OUTPUT_TOKENS = 800;
+
+const modelMap: Record<string, string> = {
+  flash: "google/gemini-3-flash-preview",
+  gemini: "google/gemini-2.5-pro",
+  "gpt-5": "openai/gpt-5",
+};
+
+// Cost per 1M tokens
+const PRICING: Record<string, { input: number; output: number }> = {
+  flash:   { input: 0.15,  output: 0.60 },
+  gemini:  { input: 1.25,  output: 10.00 },
+  "gpt-5": { input: 2.00,  output: 8.00 },
+};
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+function calculateCost(model: string, inputTokens: number, outputTokens: number): number {
+  const p = PRICING[model] ?? PRICING.flash;
+  return (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const { messages, model } = await req.json();
+    
+    // Authenticate user
+    const authHeader = req.headers.get("Authorization");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    let userId: string | null = null;
+    
+    if (authHeader) {
+      const supabase = createClient(supabaseUrl, supabaseKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user } } = await supabase.auth.getUser();
+      userId = user?.id ?? null;
+    }
+
+    // Estimate input tokens
+    const inputText = messages.map((m: any) => m.content).join(" ");
+    const inputTokens = estimateTokens(inputText);
+
+    if (inputTokens > MAX_INPUT_TOKENS) {
+      return new Response(JSON.stringify({ error: `Input too long (${inputTokens} tokens, max ${MAX_INPUT_TOKENS}). Please shorten your message or summarize attached files.` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Estimate cost and check limits via RPC
+    const estimatedCost = calculateCost(model || "flash", inputTokens, MAX_OUTPUT_TOKENS);
+
+    if (userId) {
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+      // Use service role to call increment_usage on behalf of user via raw SQL
+      const { data, error } = await adminClient.rpc("increment_usage", {
+        _input_tokens: inputTokens,
+        _cost: estimatedCost,
+      });
+      
+      // We need to call as the user, not service role
+      const userClient = createClient(supabaseUrl, supabaseKey, {
+        global: { headers: { Authorization: authHeader! } },
+      });
+      const { error: usageError } = await userClient.rpc("increment_usage", {
+        _input_tokens: inputTokens,
+        _cost: estimatedCost,
+      });
+
+      if (usageError) {
+        if (usageError.message?.includes("cost limit exceeded")) {
+          return new Response(JSON.stringify({ error: "Monthly usage limit reached. Upgrade to Pro for higher limits." }), {
+            status: 402,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        console.error("Usage tracking error:", usageError);
+      }
+    }
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
-
-    // Map frontend model names to gateway model IDs
-    const modelMap: Record<string, string> = {
-      flash: "google/gemini-3-flash-preview",
-      gemini: "google/gemini-2.5-pro",
-      "gpt-5": "openai/gpt-5",
-    };
 
     const gatewayModel = modelMap[model] || "google/gemini-3-flash-preview";
 
@@ -36,6 +114,7 @@ serve(async (req) => {
           ...messages,
         ],
         stream: true,
+        max_tokens: MAX_OUTPUT_TOKENS,
       }),
     });
 
@@ -58,6 +137,23 @@ serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Log request (fire and forget)
+    if (userId) {
+      try {
+        const userClient = createClient(supabaseUrl, supabaseKey, {
+          global: { headers: { Authorization: authHeader! } },
+        });
+        await userClient.rpc("log_request", {
+          _model: model || "flash",
+          _input_tokens: inputTokens,
+          _output_tokens: MAX_OUTPUT_TOKENS, // estimated; actual may differ
+          _cost: estimatedCost,
+        });
+      } catch (logErr) {
+        console.error("Request logging error:", logErr);
+      }
     }
 
     return new Response(response.body, {
