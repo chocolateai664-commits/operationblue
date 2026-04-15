@@ -36,23 +36,33 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages, model } = await req.json();
-    
-    // Authenticate user
+    // Authenticate user - REQUIRED
     const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    let userId: string | null = null;
-    
-    if (authHeader) {
-      const supabase = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: authHeader } },
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data, error: claimsError } = await supabase.auth.getClaims(token);
+    if (claimsError || !data?.claims) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-      const { data: { user } } = await supabase.auth.getUser();
-      userId = user?.id ?? null;
     }
+
+    const userId = data.claims.sub as string;
+
+    const { messages, model } = await req.json();
 
     // Estimate input tokens
     const inputText = messages.map((m: any) => m.content).join(" ");
@@ -68,9 +78,9 @@ serve(async (req) => {
     // Estimate cost and check limits via RPC
     const estimatedCost = calculateCost(model || "flash", inputTokens, MAX_OUTPUT_TOKENS);
 
-    if (userId) {
+    {
       const userClient = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: authHeader! } },
+        global: { headers: { Authorization: authHeader } },
       });
       const { error: usageError } = await userClient.rpc("increment_usage", {
         _input_tokens: inputTokens,
@@ -132,10 +142,10 @@ serve(async (req) => {
     }
 
     // Log request (fire and forget)
-    if (userId) {
+    {
       try {
         const userClient = createClient(supabaseUrl, supabaseKey, {
-          global: { headers: { Authorization: authHeader! } },
+          global: { headers: { Authorization: authHeader } },
         });
         await userClient.rpc("log_request", {
           _model: model || "flash",
