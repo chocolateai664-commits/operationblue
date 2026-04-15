@@ -1,32 +1,30 @@
 
 
-## Plan: Drag-and-Drop File Zone, Multi-File Picker, and File Search/Filter
+## Plan: Upgrade System Prompt and Increase Output Limits
 
-### What Changes
+The user's code snippet contains two key improvements to integrate: a much richer system prompt and higher max output tokens. The refinement pass (second API call) is intentionally excluded — it doubles cost and latency with marginal benefit when the system prompt already enforces quality.
 
-Upgrade `ChatInput.tsx` to support:
-1. **Drag-and-drop** files and folders onto the chat input area
-2. **Multi-file support** on the `+` button (currently only picks one file)
-3. **File list with search/filter** when multiple files are attached (instead of just a count badge)
-4. **Individual file removal** from the attached list
+### Changes
 
-### Implementation Details
+**1. Edge Function — `supabase/functions/chat/index.ts`**
 
-**Edit: `src/components/chat/ChatInput.tsx`**
+- Replace the current one-liner system prompt with the detailed prompt from the user's snippet (structured, complete answers, step-by-step reasoning, self-review before responding)
+- Increase `MAX_OUTPUT_TOKENS` from `800` to `1500` to allow fuller responses
+- Update `temperature` to `0.7` for slightly more natural output
 
-1. **Drag-and-drop handling** — wrap the entire input area in drag event handlers (`onDragOver`, `onDragLeave`, `onDrop`). On drop, use `webkitGetAsEntry()` to recursively traverse folder entries. Show a visual "drop here" overlay when dragging. Reuse the existing `summarizeContent` pipeline for processing dropped files.
+**2. No other files change** — the system prompt lives server-side only (as required by security guidelines). The client-side `src/api/ai.ts` and `src/lib/stream-chat.ts` remain untouched.
 
-2. **Multi-file picker** — change the `+` button's hidden input to accept `multiple`. Process all selected files (up to `MAX_FILES`), not just the first one. Merge into the existing `attachedFiles` array.
+### What We Skip (and Why)
 
-3. **Unified file list** — collapse `attachedFile` (single) and `attachedFiles` (folder) into one `attachedFiles` array. Show each file as an individual badge/chip with an X button for removal. When more than 3 files are attached, show a collapsible list.
-
-4. **Search/filter** — when 5+ files are attached, show a small search input above the file chips to filter by filename. Filtered-out files remain attached; the filter only controls visibility.
+| From user's snippet | Decision |
+|---|---|
+| `refineOutput()` second-pass call | Skip — doubles cost per request, adds latency. The improved system prompt achieves the same quality boost. |
+| Direct `/api/gemini` and `/api/gpt` routes | Skip — already routed through the Lovable AI Gateway edge function. |
+| Client-side model routing (`callGemini`, `callGPT`) | Skip — existing architecture already handles this server-side. |
 
 ### Files to Edit
 
 | File | Change |
-|------|--------|
-| `src/components/chat/ChatInput.tsx` | Add drag-drop zone, multi-file picker, file list with search, unify attachment state |
-
-No database, edge function, or routing changes needed.
+|---|---|
+| `supabase/functions/chat/index.ts` | New system prompt, `MAX_OUTPUT_TOKENS` → 1500, add `temperature: 0.7` |
 
