@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const MAX_INPUT_TOKENS = 8000;
-const MAX_OUTPUT_TOKENS = 800;
+const MAX_OUTPUT_TOKENS = 1500;
 
 const modelMap: Record<string, string> = {
   flash: "google/gemini-3-flash-preview",
