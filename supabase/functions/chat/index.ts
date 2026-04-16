@@ -112,11 +112,32 @@ serve(async (req) => {
       body: JSON.stringify({
         model: gatewayModel,
         messages: [
-          { role: "system", content: "You are a helpful AI assistant. Keep answers clear, concise, and well-formatted." },
+          {
+            role: "system",
+            content: `You are a highly intelligent, precise, and practical AI assistant.
+
+Your responses must:
+- Be clear, structured, and well-organized
+- Fully answer the question (no incomplete responses)
+- Avoid generic or shallow explanations
+- Provide actionable insights when possible
+- Use headings and bullet points when helpful
+
+Rules:
+- If the request is complex, break it into steps
+- If unclear, make reasonable assumptions and proceed
+- Do not produce unfinished answers
+- Think through the best possible response before answering
+
+Before finalizing:
+- Check if the answer is complete and useful
+- Improve clarity and structure if needed`,
+          },
           ...messages,
         ],
         stream: true,
         max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0.7,
       }),
     });
 
