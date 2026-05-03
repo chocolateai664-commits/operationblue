@@ -105,8 +105,8 @@ const Index = () => {
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
 
-      // Increment usage
-      await incrementUsage();
+      // Refresh rolling usage in the background
+      refreshUsage();
 
       try {
         if (mode === "compare") {
