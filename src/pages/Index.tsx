@@ -301,7 +301,7 @@ const Index = () => {
 
             {isLoading && liveEntries.every((e) => !e.isStreaming) && <ThinkingIndicator />}
 
-            {showUpgrade && <UpgradePrompt usedCount={totalRequests} limit={FREE_LIMIT} />}
+            {showUpgrade && <UpgradePrompt usedCount={used5h} limit={FREE_LIMIT} resetAt={resetAt} used24h={used24h} limit24h={FREE_LIMIT_24H} />}
           </div>
         </div>
 
