@@ -78,10 +78,36 @@ serve(async (req) => {
     // Estimate cost and check limits via RPC
     const estimatedCost = calculateCost(model || "flash", inputTokens, MAX_OUTPUT_TOKENS);
 
+    const userClient = createClient(supabaseUrl, supabaseKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    // Rolling 5h / 24h quota check (free users only; pro/admin pass through)
     {
-      const userClient = createClient(supabaseUrl, supabaseKey, {
-        global: { headers: { Authorization: authHeader } },
-      });
+      const { error: quotaError } = await userClient.rpc("check_rolling_quota");
+      if (quotaError) {
+        const msg = quotaError.message || "";
+        const match = msg.match(/QUOTA_EXCEEDED:(5h|24h):(\d+)/);
+        if (match) {
+          const window = match[1];
+          const retrySeconds = parseInt(match[2], 10);
+          const retryHours = Math.max(1, Math.ceil(retrySeconds / 3600));
+          return new Response(JSON.stringify({
+            error: "QUOTA_EXCEEDED",
+            window,
+            retry_after_seconds: retrySeconds,
+            retry_after: `${retryHours} hour${retryHours === 1 ? "" : "s"}`,
+            message: `Limit reached (${window === "5h" ? "10 messages / 5 hours" : "30 messages / 24 hours"}). Try again after cooldown or upgrade to Pro.`,
+          }), {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(retrySeconds) },
+          });
+        }
+        console.error("Quota check error:", quotaError);
+      }
+    }
+
+    {
       const { error: usageError } = await userClient.rpc("increment_usage", {
         _input_tokens: inputTokens,
         _cost: estimatedCost,
