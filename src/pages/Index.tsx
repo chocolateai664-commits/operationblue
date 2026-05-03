@@ -182,7 +182,7 @@ const Index = () => {
 
       setIsLoading(false);
     },
-    [model, mode, ollamaConfig.model, activeId, canUseAI, createConversation, saveMessage, incrementUsage]
+    [model, mode, ollamaConfig.model, activeId, canUseAI, createConversation, saveMessage, refreshUsage]
   );
 
   const showUpgrade = !canUseAI;
