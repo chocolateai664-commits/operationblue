@@ -178,6 +178,7 @@ const Index = () => {
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Unknown error");
+        refreshUsage();
       }
 
       setIsLoading(false);
