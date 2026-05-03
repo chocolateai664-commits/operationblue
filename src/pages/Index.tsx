@@ -310,7 +310,7 @@ const Index = () => {
           <div className="max-w-3xl mx-auto px-4 py-3">
             <ChatInput onSend={handleSend} disabled={isLoading || showUpgrade} />
             <p className="text-[10px] text-muted-foreground text-center mt-2">
-              OptiNeural • {remainingFree} free requests remaining
+              OptiNeural • {isPro ? "Pro · unlimited" : `${remainingFree} of ${FREE_LIMIT} messages left in this 5-hour window`}
             </p>
           </div>
         </div>
