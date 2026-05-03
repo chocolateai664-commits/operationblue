@@ -215,8 +215,8 @@ const Index = () => {
               <Sparkles className="w-3.5 h-3.5 text-primary" />
             </div>
             <h1 className="text-sm font-semibold tracking-tight">OptiNeural</h1>
-            {!showUpgrade && (
-              <span className="text-[10px] text-muted-foreground ml-2">{remainingFree} free left</span>
+            {!isPro && (
+              <span className="text-[10px] text-muted-foreground ml-2">{used5h}/{FREE_LIMIT} used (5h)</span>
             )}
           </div>
           <div className="flex items-center gap-2">
