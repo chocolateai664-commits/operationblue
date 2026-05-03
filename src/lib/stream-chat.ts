@@ -32,7 +32,10 @@ export async function streamChat({
 
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: "Stream failed" }));
-    throw new Error(errBody.error || `HTTP ${resp.status}`);
+    const msg = errBody.error === "QUOTA_EXCEEDED"
+      ? (errBody.message || `Limit reached. Try again in ${errBody.retry_after || "a few hours"}.`)
+      : (errBody.error || `HTTP ${resp.status}`);
+    throw new Error(msg);
   }
 
   if (!resp.body) throw new Error("No response body");
