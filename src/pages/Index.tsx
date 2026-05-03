@@ -33,7 +33,7 @@ const Index = () => {
   const { signOut } = useAuth();
   const { conversations, activeId, setActiveId, createConversation, updateTitle, deleteConversation } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
-  const { canUseAI, remainingFree, totalRequests, incrementUsage, FREE_LIMIT, isPro } = useUsageTracking();
+  const { canUseAI, remainingFree, used5h, used24h, FREE_LIMIT, FREE_LIMIT_24H, resetAt, refresh: refreshUsage, isPro } = useUsageTracking();
   const navigate = useNavigate();
 
   const [model, setModel] = useState<AIModel>("flash");
@@ -105,8 +105,8 @@ const Index = () => {
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
 
-      // Increment usage
-      await incrementUsage();
+      // Refresh rolling usage in the background
+      refreshUsage();
 
       try {
         if (mode === "compare") {
@@ -178,11 +178,12 @@ const Index = () => {
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Unknown error");
+        refreshUsage();
       }
 
       setIsLoading(false);
     },
-    [model, mode, ollamaConfig.model, activeId, canUseAI, createConversation, saveMessage, incrementUsage]
+    [model, mode, ollamaConfig.model, activeId, canUseAI, createConversation, saveMessage, refreshUsage]
   );
 
   const showUpgrade = !canUseAI;
@@ -215,8 +216,8 @@ const Index = () => {
               <Sparkles className="w-3.5 h-3.5 text-primary" />
             </div>
             <h1 className="text-sm font-semibold tracking-tight">OptiNeural</h1>
-            {!showUpgrade && (
-              <span className="text-[10px] text-muted-foreground ml-2">{remainingFree} free left</span>
+            {!isPro && (
+              <span className="text-[10px] text-muted-foreground ml-2">{used5h}/{FREE_LIMIT} used (5h)</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -301,7 +302,7 @@ const Index = () => {
 
             {isLoading && liveEntries.every((e) => !e.isStreaming) && <ThinkingIndicator />}
 
-            {showUpgrade && <UpgradePrompt usedCount={totalRequests} limit={FREE_LIMIT} />}
+            {showUpgrade && <UpgradePrompt usedCount={used5h} limit={FREE_LIMIT} resetAt={resetAt} used24h={used24h} limit24h={FREE_LIMIT_24H} />}
           </div>
         </div>
 
@@ -310,7 +311,7 @@ const Index = () => {
           <div className="max-w-3xl mx-auto px-4 py-3">
             <ChatInput onSend={handleSend} disabled={isLoading || showUpgrade} />
             <p className="text-[10px] text-muted-foreground text-center mt-2">
-              OptiNeural • {remainingFree} free requests remaining
+              OptiNeural • {isPro ? "Pro · unlimited" : `${remainingFree} of ${FREE_LIMIT} messages left in this 5-hour window`}
             </p>
           </div>
         </div>

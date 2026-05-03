@@ -162,6 +162,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_rolling_quota: { Args: never; Returns: Json }
+      get_rolling_usage: { Args: never; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
