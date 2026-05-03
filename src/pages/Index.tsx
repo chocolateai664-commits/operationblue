@@ -33,7 +33,7 @@ const Index = () => {
   const { signOut } = useAuth();
   const { conversations, activeId, setActiveId, createConversation, updateTitle, deleteConversation } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
-  const { canUseAI, remainingFree, totalRequests, incrementUsage, FREE_LIMIT, isPro } = useUsageTracking();
+  const { canUseAI, remainingFree, used5h, used24h, FREE_LIMIT, FREE_LIMIT_24H, resetAt, refresh: refreshUsage, isPro } = useUsageTracking();
   const navigate = useNavigate();
 
   const [model, setModel] = useState<AIModel>("flash");
