@@ -162,8 +162,7 @@ Before finalizing:
           ...messages,
         ],
         stream: true,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        temperature: 0.7,
+        max_completion_tokens: MAX_OUTPUT_TOKENS,
       }),
     });
 
