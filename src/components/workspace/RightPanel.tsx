@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronsRight, FileCode2, FileText, Braces, Copy, Check, Download, Crown, Zap, Clock, Activity, Cpu, MessagesSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -131,10 +131,10 @@ export function RightPanel({
   const artifacts = useMemo(() => extractArtifacts(messages), [messages]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  useState(() => {
+  useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  });
+  }, []);
   const remaining = resetAt ? resetAt.getTime() - now : 0;
 
   const firstMsgAt = messages[0]?.created_at;
