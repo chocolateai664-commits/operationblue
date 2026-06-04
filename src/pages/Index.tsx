@@ -1,22 +1,25 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ModelSelector } from "@/components/chat/ModelSelector";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import { motion, AnimatePresence } from "framer-motion";
 import { ModeToggle, type ChatMode } from "@/components/chat/ModeToggle";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { CompareView } from "@/components/chat/CompareView";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
-import { OllamaSettings, type OllamaConfig } from "@/components/chat/OllamaSettings";
-import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { type OllamaConfig } from "@/components/chat/OllamaSettings";
+import { LeftSidebar } from "@/components/workspace/LeftSidebar";
+import { RightPanel } from "@/components/workspace/RightPanel";
 import { UpgradePrompt } from "@/components/chat/UpgradePrompt";
 import { useAuth } from "@/hooks/useAuth";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessages } from "@/hooks/useMessages";
 import { useUsageTracking } from "@/hooks/useUsageTracking";
-import { streamAIResponse, ALL_MODELS, type AIModel } from "@/api/ai";
+import { streamAIResponse, ALL_MODELS, MODEL_META, type AIModel } from "@/api/ai";
 import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
-import { Sparkles, AlertCircle, LogOut, PanelLeftClose, PanelLeft, Crown } from "lucide-react";
+import { Sparkles, AlertCircle, PanelLeft, PanelRight, Menu, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface LocalEntry {
   id: string;
@@ -29,9 +32,13 @@ interface LocalEntry {
   userMessage?: string;
 }
 
+const LS_LAYOUT = "optineural:layout-v1";
+const LS_LEFT_OPEN = "optineural:left-open";
+const LS_RIGHT_OPEN = "optineural:right-open";
+
 const Index = () => {
   const { signOut } = useAuth();
-  const { conversations, activeId, setActiveId, createConversation, updateTitle, deleteConversation } = useConversations();
+  const { conversations, activeId, setActiveId, createConversation, deleteConversation } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
   const { canUseAI, remainingFree, used5h, used24h, FREE_LIMIT, FREE_LIMIT_24H, resetAt, refresh: refreshUsage, isPro } = useUsageTracking();
   const navigate = useNavigate();
@@ -41,7 +48,19 @@ const Index = () => {
   const [liveEntries, setLiveEntries] = useState<LocalEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [ollamaOnline, setOllamaOnline] = useState<boolean | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const [leftOpen, setLeftOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const v = localStorage.getItem(LS_LEFT_OPEN);
+    return v === null ? true : v === "1";
+  });
+  const [rightOpen, setRightOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    const v = localStorage.getItem(LS_RIGHT_OPEN);
+    return v === null ? true : v === "1";
+  });
+  const [mobileDrawer, setMobileDrawer] = useState<"left" | "right" | null>(null);
+
   const [ollamaConfig, setOllamaConfig] = useState<OllamaConfig>({
     baseUrl: "http://localhost:11434",
     model: "llama3",
@@ -49,7 +68,9 @@ const Index = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
 
-  // Load messages when active conversation changes
+  useEffect(() => localStorage.setItem(LS_LEFT_OPEN, leftOpen ? "1" : "0"), [leftOpen]);
+  useEffect(() => localStorage.setItem(LS_RIGHT_OPEN, rightOpen ? "1" : "0"), [rightOpen]);
+
   useEffect(() => {
     if (activeId) {
       loadMessages(activeId);
@@ -61,7 +82,6 @@ const Index = () => {
     conversationRef.current = [];
   }, [activeId, loadMessages, clearMessages]);
 
-  // Rebuild conversation history from DB messages
   useEffect(() => {
     conversationRef.current = dbMessages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
   }, [dbMessages]);
@@ -86,13 +106,18 @@ const Index = () => {
     clearMessages();
     setLiveEntries([]);
     conversationRef.current = [];
+    setMobileDrawer(null);
   }, [setActiveId, clearMessages]);
+
+  const handleSelectConv = useCallback((id: string) => {
+    setActiveId(id);
+    setMobileDrawer(null);
+  }, [setActiveId]);
 
   const handleSend = useCallback(
     async (text: string) => {
       if (!canUseAI) return;
 
-      // Ensure we have a conversation
       let convId = activeId;
       if (!convId) {
         const titlePreview = text.slice(0, 40) + (text.length > 40 ? "…" : "");
@@ -100,12 +125,9 @@ const Index = () => {
         if (!convId) return;
       }
 
-      // Save user message to DB
       await saveMessage(convId, "user", text);
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
-
-      // Refresh rolling usage in the background
       refreshUsage();
 
       try {
@@ -170,10 +192,8 @@ const Index = () => {
           });
 
           update(accumulated, false);
-          // Save assistant message to DB
           await saveMessage(convId, "assistant", accumulated, model);
           conversationRef.current.push({ role: "assistant", content: accumulated });
-          // Remove from live entries since it's now in DB
           setLiveEntries((prev) => prev.filter((e) => e.id !== assistantId));
         }
       } catch (err) {
@@ -187,134 +207,263 @@ const Index = () => {
   );
 
   const showUpgrade = !canUseAI;
+  const meta = MODEL_META[model];
 
-  return (
-    <div className="flex h-screen-safe">
-      {/* Sidebar */}
-      {sidebarOpen && (
-        <ChatSidebar
-          conversations={conversations}
-          activeId={activeId}
-          onSelect={setActiveId}
-          onNew={handleNewChat}
-          onDelete={deleteConversation}
-          isPro={isPro}
-        />
-      )}
+  const sidebarNode = (
+    <LeftSidebar
+      conversations={conversations}
+      activeId={activeId}
+      onSelect={handleSelectConv}
+      onNew={handleNewChat}
+      onDelete={deleteConversation}
+      isPro={isPro}
+      selectedModel={model}
+      onSelectModel={setModel}
+      onCollapse={() => setLeftOpen(false)}
+      onSignOut={signOut}
+    />
+  );
 
-      <div className="flex flex-col flex-1 min-w-0">
-        {/* Header */}
-        <header className="relative flex items-center justify-between px-4 py-3 border-b border-border bg-card/50 backdrop-blur-md">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSidebarOpen((v) => !v)}
-              className="p-1.5 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {sidebarOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
-            </button>
-            <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
-              <Sparkles className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <h1 className="text-sm font-semibold tracking-tight">OptiNeural</h1>
-            {!isPro && (
-              <span className="text-[10px] text-muted-foreground ml-2">{used5h}/{FREE_LIMIT} used (5h)</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <ModelSelector selected={model} onSelect={setModel} />
-            <div className="w-px h-5 bg-border" />
-            <ModeToggle mode={mode} onToggle={setMode} />
-            <div className="w-px h-5 bg-border" />
-            <OllamaSettings config={ollamaConfig} onChange={handleOllamaConfigChange} />
-            <div className="w-px h-5 bg-border" />
-            <button
-              onClick={() => navigate("/pricing")}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-              title="Pricing"
-            >
-              <Crown className="w-3.5 h-3.5" />
-            </button>
-            <div className="w-px h-5 bg-border" />
-            <button
-              onClick={signOut}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-              title="Sign out"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </header>
+  const rightNode = (
+    <RightPanel
+      model={model}
+      isPro={isPro}
+      used5h={used5h}
+      used24h={used24h}
+      limit5h={FREE_LIMIT}
+      limit24h={FREE_LIMIT_24H}
+      resetAt={resetAt}
+      messages={dbMessages}
+      ollamaConfig={ollamaConfig}
+      onOllamaChange={handleOllamaConfigChange}
+      onCollapse={() => setRightOpen(false)}
+      onUpgrade={() => navigate("/pricing")}
+    />
+  );
 
-        {/* Ollama banner */}
-        {model === "ollama" && ollamaOnline === false && (
-          <div className="flex items-center gap-2 px-6 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs">
-            <AlertCircle className="w-3.5 h-3.5" />
-            <span>
-              Ollama is not running. Start with <code className="font-mono bg-destructive/10 px-1 rounded">ollama serve</code>.
+  const centerNode = (
+    <div className="flex flex-col h-full bg-gradient-subtle">
+      {/* Top bar */}
+      <header className="flex items-center justify-between px-4 h-12 border-b border-border/60 glass shrink-0">
+        <div className="flex items-center gap-1.5">
+          {/* Mobile menu */}
+          <button
+            onClick={() => setMobileDrawer("left")}
+            className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            aria-label="Open menu"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+          {/* Desktop sidebar toggle */}
+          {!leftOpen && (
+            <button
+              onClick={() => setLeftOpen(true)}
+              className="hidden lg:flex p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              aria-label="Open sidebar"
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+          )}
+          <div className="hidden sm:flex items-center gap-2 ml-1">
+            <span className={cn("w-1.5 h-1.5 rounded-full", meta.colorClass)} />
+            <span className="text-[12px] font-medium text-foreground/90">{meta.label}</span>
+            <span className="text-[11px] text-muted-foreground">·</span>
+            <span className="text-[11px] text-muted-foreground">
+              {activeId
+                ? conversations.find((c) => c.id === activeId)?.title ?? "Chat"
+                : "New conversation"}
             </span>
           </div>
-        )}
+        </div>
 
-        {/* Chat area */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
-          <div className="max-w-3xl mx-auto px-4">
-            {dbMessages.length === 0 && liveEntries.length === 0 && !showUpgrade && (
-              <div className="flex flex-col items-center justify-center h-full min-h-[60vh] text-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                  <Sparkles className="w-8 h-8 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-semibold mb-1">What can I help you with?</h2>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    Choose a model, pick single or compare mode, and start chatting.
-                  </p>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2 mt-2">
-                  {["Explain quantum computing", "Write a Python script", "Compare AI models"].map((p) => (
-                    <button key={p} onClick={() => handleSend(p)} className="px-4 py-2 rounded-xl border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors">
-                      {p}
-                    </button>
-                  ))}
+        <div className="flex items-center gap-2">
+          <ModeToggle mode={mode} onToggle={setMode} />
+          {!isPro && (
+            <span className="hidden md:inline text-[11px] text-muted-foreground font-mono tabular-nums">
+              {used5h}/{FREE_LIMIT}
+            </span>
+          )}
+          <button
+            onClick={() => setMobileDrawer("right")}
+            className="lg:hidden p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            aria-label="Open workspace panel"
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
+          {!rightOpen && (
+            <button
+              onClick={() => setRightOpen(true)}
+              className="hidden lg:flex p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              aria-label="Open workspace panel"
+            >
+              <PanelRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* Ollama banner */}
+      {model === "ollama" && ollamaOnline === false && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>
+            Ollama is not running. Start with <code className="font-mono bg-destructive/20 px-1.5 py-0.5 rounded">ollama serve</code>.
+          </span>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="max-w-[820px] mx-auto px-5 sm:px-8">
+          {dbMessages.length === 0 && liveEntries.length === 0 && !showUpgrade && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-5 py-12"
+            >
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-primary-glow/20 blur-2xl rounded-full" />
+                <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-glow">
+                  <Sparkles className="w-7 h-7 text-primary-foreground" />
                 </div>
               </div>
-            )}
+              <div className="space-y-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-balance">What can I help you build?</h1>
+                <p className="text-sm text-muted-foreground max-w-md text-balance">
+                  Choose a model, pick single or compare mode, and start a conversation.
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 mt-2 max-w-xl">
+                {[
+                  "Explain how Rust ownership works",
+                  "Write a Python script to parse CSV",
+                  "Compare React Server Components vs SSR",
+                  "Design a Postgres schema for chat history",
+                ].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => handleSend(p)}
+                    className="px-3.5 py-2 rounded-xl border border-border bg-card/40 hover:bg-card hover:border-border-strong text-xs text-muted-foreground hover:text-foreground transition-all"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
 
-            {/* DB messages (persisted) */}
-            {dbMessages.map((msg) => (
-              <ChatMessage key={msg.id} role={msg.role} content={msg.content} model={msg.model ?? undefined} />
-            ))}
+          {dbMessages.map((msg) => (
+            <ChatMessage key={msg.id} role={msg.role} content={msg.content} model={msg.model ?? undefined} />
+          ))}
 
-            {/* Live streaming entries */}
-            {liveEntries.map((entry) => {
-              if (entry.type === "compare" && entry.results) {
-                return <CompareView key={entry.id} results={entry.results} />;
-              }
-              return (
-                <ChatMessage
-                  key={entry.id}
-                  role={entry.role!}
-                  content={entry.content!}
-                  model={entry.model}
-                  isStreaming={entry.isStreaming}
-                />
-              );
-            })}
+          {liveEntries.map((entry) => {
+            if (entry.type === "compare" && entry.results) {
+              return <CompareView key={entry.id} results={entry.results} />;
+            }
+            return (
+              <ChatMessage
+                key={entry.id}
+                role={entry.role!}
+                content={entry.content!}
+                model={entry.model}
+                isStreaming={entry.isStreaming}
+              />
+            );
+          })}
 
-            {isLoading && liveEntries.every((e) => !e.isStreaming) && <ThinkingIndicator />}
+          {isLoading && liveEntries.every((e) => !e.isStreaming) && <ThinkingIndicator />}
 
-            {showUpgrade && <UpgradePrompt usedCount={used5h} limit={FREE_LIMIT} resetAt={resetAt} used24h={used24h} limit24h={FREE_LIMIT_24H} />}
-          </div>
+          {showUpgrade && (
+            <UpgradePrompt usedCount={used5h} limit={FREE_LIMIT} resetAt={resetAt} used24h={used24h} limit24h={FREE_LIMIT_24H} />
+          )}
         </div>
+      </div>
 
-        {/* Input */}
-        <div className="border-t border-border bg-card/50 backdrop-blur-md">
-          <div className="max-w-3xl mx-auto px-4 py-3">
+      {/* Composer */}
+      <div className="shrink-0 px-4 pb-4 pt-2">
+        <div className="max-w-[820px] mx-auto">
+          <div className="rounded-2xl border border-border bg-card/80 backdrop-blur-md shadow-elevated p-2">
             <ChatInput onSend={handleSend} disabled={isLoading || showUpgrade} />
-            <p className="text-[10px] text-muted-foreground text-center mt-2">
-              OptiNeural • {isPro ? "Pro · unlimited" : `${remainingFree} of ${FREE_LIMIT} messages left in this 5-hour window`}
-            </p>
           </div>
+          <p className="text-[10.5px] text-muted-foreground/80 text-center mt-2">
+            {isPro
+              ? "Pro · unlimited messages"
+              : `${remainingFree} of ${FREE_LIMIT} messages left in this 5h window`}
+            {" · "}
+            <span className="font-mono">{meta.label}</span>
+          </p>
         </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen-safe bg-background text-foreground overflow-hidden">
+      {/* Desktop: resizable 3-panel */}
+      <div className="hidden lg:block h-full">
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId={LS_LAYOUT}
+          className="h-full"
+        >
+          {leftOpen && (
+            <>
+              <ResizablePanel defaultSize={18} minSize={14} maxSize={28} order={1} id="left">
+                {sidebarNode}
+              </ResizablePanel>
+              <ResizableHandle />
+            </>
+          )}
+          <ResizablePanel defaultSize={rightOpen ? 60 : 82} minSize={40} order={2} id="center">
+            {centerNode}
+          </ResizablePanel>
+          {rightOpen && (
+            <>
+              <ResizableHandle />
+              <ResizablePanel defaultSize={22} minSize={16} maxSize={34} order={3} id="right">
+                {rightNode}
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+      </div>
+
+      {/* Mobile / tablet: single column with drawers */}
+      <div className="lg:hidden h-full">
+        {centerNode}
+        <AnimatePresence>
+          {mobileDrawer && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setMobileDrawer(null)}
+                className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ x: mobileDrawer === "left" ? "-100%" : "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: mobileDrawer === "left" ? "-100%" : "100%" }}
+                transition={{ type: "tween", duration: 0.25, ease: "easeOut" }}
+                className={cn(
+                  "fixed top-0 bottom-0 z-50 w-[85vw] max-w-[320px]",
+                  mobileDrawer === "left" ? "left-0" : "right-0"
+                )}
+              >
+                <button
+                  onClick={() => setMobileDrawer(null)}
+                  aria-label="Close"
+                  className="absolute top-3 right-3 z-10 p-1.5 rounded-md bg-secondary/80 text-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                {mobileDrawer === "left" ? sidebarNode : rightNode}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
