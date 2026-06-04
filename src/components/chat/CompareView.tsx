@@ -1,4 +1,8 @@
 import { Sparkles } from "lucide-react";
+import { motion } from "framer-motion";
+import { MarkdownContent } from "./MarkdownContent";
+import { MODEL_META, type AIModel } from "@/api/ai";
+import { cn } from "@/lib/utils";
 
 interface CompareResult {
   model: string;
@@ -10,41 +14,35 @@ interface CompareViewProps {
   results: CompareResult[];
 }
 
-const modelColors: Record<string, string> = {
-  ollama: "text-model-orange border-model-orange/30",
-  flash: "text-model-green border-model-green/30",
-  gemini: "text-model-blue border-model-blue/30",
-  "gpt-5": "text-model-purple border-model-purple/30",
-};
-
 export function CompareView({ results }: CompareViewProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 py-4">
-      {results.map((r) => (
-        <div
-          key={r.model}
-          className={`rounded-xl border bg-secondary/40 p-4 ${
-            modelColors[r.model] || "border-border"
-          }`}
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-bold uppercase tracking-wider">
-              {r.model}
-            </span>
-          </div>
-          <p className="text-sm text-foreground leading-relaxed">
-            {r.content}
-            {r.isStreaming && (
-              <span className="inline-flex gap-0.5 ml-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot [animation-delay:0.2s]" />
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot [animation-delay:0.4s]" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 py-6">
+      {results.map((r, i) => {
+        const meta = r.model in MODEL_META ? MODEL_META[r.model as AIModel] : null;
+        return (
+          <motion.div
+            key={r.model}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, delay: i * 0.05 }}
+            className="rounded-xl border border-border bg-card/60 backdrop-blur-sm p-4 hover:border-border-strong transition-colors"
+          >
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border/60">
+              <span className={cn("w-1.5 h-1.5 rounded-full", meta?.colorClass ?? "bg-muted")} />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {meta?.label ?? r.model}
               </span>
-            )}
-          </p>
-        </div>
-      ))}
+              {r.isStreaming && <Sparkles className="w-3 h-3 text-primary animate-pulse ml-auto" />}
+            </div>
+            <div className="text-[13px] leading-relaxed text-foreground">
+              <MarkdownContent content={r.content || "_thinking..._"} />
+              {r.isStreaming && (
+                <span className="inline-block ml-1 align-middle w-1.5 h-3.5 bg-primary/70 rounded-sm animate-pulse" />
+              )}
+            </div>
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
