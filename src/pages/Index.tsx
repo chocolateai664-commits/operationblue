@@ -117,6 +117,37 @@ const Index = () => {
     setMobileDrawer(null);
   }, [setActiveId]);
 
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  const maybeGenerateSummary = useCallback(
+    async (convId: string) => {
+      const conv = conversations.find((c) => c.id === convId);
+      const total = conversationRef.current.length;
+      const covered = conv?.summary_message_count ?? 0;
+      if (!shouldGenerateSummary(total, covered)) return;
+
+      const older = messagesToSummarize(conversationRef.current);
+      if (older.length === 0) return;
+      const transcript = older
+        .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+        .join("\n\n");
+
+      try {
+        const { data, error } = await supabase.functions.invoke("summarize", {
+          body: { chunks: [transcript] },
+        });
+        if (error) throw error;
+        const summary = (data?.summary as string | undefined)?.trim();
+        if (summary) await updateSummary(convId, summary, older.length);
+      } catch (e) {
+        console.warn("Conversation summary failed:", e);
+      }
+    },
+    [conversations, updateSummary]
+  );
+
   const handleSend = useCallback(
     async (text: string) => {
       if (!canUseAI) return;
@@ -132,6 +163,10 @@ const Index = () => {
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
       refreshUsage();
+
+      const activeConv = conversations.find((c) => c.id === convId);
+      const summary = activeConv?.summary ?? null;
+      const priorHistory = conversationRef.current.slice(0, -1);
 
       try {
         if (mode === "compare") {
@@ -154,6 +189,11 @@ const Index = () => {
             );
           };
 
+          const controller = new AbortController();
+          abortRef.current = controller;
+
+          const window = buildContextWindow(priorHistory, summary, text);
+
           await Promise.allSettled(
             ALL_MODELS.map(async (m) => {
               let accumulated = "";
@@ -161,13 +201,19 @@ const Index = () => {
                 await streamAIResponse({
                   model: m,
                   prompt: text,
-                  conversationHistory: conversationRef.current.slice(0, -1),
+                  conversationHistory: window.messages.slice(0, -1),
+                  system: window.system,
                   ollamaModel: ollamaConfig.model,
+                  signal: controller.signal,
                   onDelta: (chunk) => { accumulated += chunk; updateResult(m, accumulated, false); },
                   onDone: () => updateResult(m, accumulated, true),
                   onError: (msg) => updateResult(m, `⚠️ ${msg}`, true),
                 });
-              } catch { /* handled */ }
+              } catch (err) {
+                if (err instanceof StreamAbortedError) {
+                  updateResult(m, accumulated + "\n\n_Stopped._", true);
+                }
+              }
             })
           );
         } else {
@@ -184,29 +230,69 @@ const Index = () => {
             );
           };
 
-          accumulated = await streamAIResponse({
-            model,
-            prompt: text,
-            conversationHistory: conversationRef.current.slice(0, -1),
-            ollamaModel: ollamaConfig.model,
-            onDelta: (chunk) => { accumulated += chunk; update(accumulated, true); },
-            onDone: () => {},
-            onError: (msg) => toast.error(msg),
-          });
+          const runOnce = async (history: MemoryMessage[], recent?: number) => {
+            const controller = new AbortController();
+            abortRef.current = controller;
+            const window = buildContextWindow(history, summary, text, recent ? { recent } : {});
+            return streamAIResponse({
+              model,
+              prompt: text,
+              conversationHistory: window.messages.slice(0, -1),
+              system: window.system,
+              ollamaModel: ollamaConfig.model,
+              signal: controller.signal,
+              onDelta: (chunk) => { accumulated += chunk; update(accumulated, true); },
+              onDone: () => {},
+              onError: () => {}, // we re-throw and decide below
+            });
+          };
 
-          update(accumulated, false);
-          await saveMessage(convId, "assistant", accumulated, model);
-          conversationRef.current.push({ role: "assistant", content: accumulated });
+          let aborted = false;
+          try {
+            accumulated = await runOnce(priorHistory);
+          } catch (err) {
+            if (err instanceof StreamAbortedError) {
+              aborted = true;
+            } else {
+              const msg = err instanceof Error ? err.message : "Unknown error";
+              // Don't retry quota errors or auth errors
+              if (/QUOTA|Limit reached|Unauthorized|sign(ed)? in/i.test(msg)) {
+                throw err;
+              }
+              // Retry once with a smaller window
+              console.warn("Chat stream failed, retrying with smaller context:", msg);
+              accumulated = "";
+              update("", true);
+              try {
+                accumulated = await runOnce(priorHistory, 2);
+              } catch (err2) {
+                if (err2 instanceof StreamAbortedError) aborted = true;
+                else throw err2;
+              }
+            }
+          }
+
+          const final = aborted && accumulated ? `${accumulated}\n\n_Stopped._` : accumulated;
+          update(final, false);
+          if (final.trim()) {
+            await saveMessage(convId, "assistant", final, model);
+            conversationRef.current.push({ role: "assistant", content: final });
+          }
           setLiveEntries((prev) => prev.filter((e) => e.id !== assistantId));
+
+          if (!aborted && final.trim()) {
+            void maybeGenerateSummary(convId);
+          }
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Unknown error");
         refreshUsage();
+      } finally {
+        abortRef.current = null;
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     },
-    [model, mode, ollamaConfig.model, activeId, canUseAI, createConversation, saveMessage, refreshUsage]
+    [model, mode, ollamaConfig.model, activeId, canUseAI, conversations, createConversation, saveMessage, refreshUsage, maybeGenerateSummary]
   );
 
   const showUpgrade = !canUseAI;
@@ -387,7 +473,12 @@ const Index = () => {
       <div className="shrink-0 px-4 pb-4 pt-2">
         <div className="max-w-[820px] mx-auto">
           <div className="rounded-2xl border border-border bg-card/80 backdrop-blur-md shadow-elevated p-2">
-            <ChatInput onSend={handleSend} disabled={isLoading || showUpgrade} />
+            <ChatInput
+              onSend={handleSend}
+              onStop={handleStop}
+              isStreaming={isLoading}
+              disabled={showUpgrade}
+            />
           </div>
           <p className="text-[10.5px] text-muted-foreground/80 text-center mt-2">
             {isPro
