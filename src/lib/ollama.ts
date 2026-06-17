@@ -6,17 +6,20 @@ export function setOllamaBase(url: string) {
 
 export interface OllamaOptions {
   model?: string;
+  system?: string;
+  signal?: AbortSignal;
   onDelta?: (text: string) => void;
 }
 
 export async function streamOllama(
   prompt: string,
-  { model = "llama3", onDelta }: OllamaOptions = {}
+  { model = "llama3", system, signal, onDelta }: OllamaOptions = {}
 ): Promise<string> {
   const resp = await fetch(`${OLLAMA_BASE}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, prompt, stream: !!onDelta }),
+    body: JSON.stringify({ model, prompt, system, stream: !!onDelta }),
+    signal,
   });
 
   if (!resp.ok) {
@@ -28,7 +31,6 @@ export async function streamOllama(
     return data.response;
   }
 
-  // Streaming mode
   const reader = resp.body?.getReader();
   if (!reader) throw new Error("No response body");
 
@@ -39,7 +41,6 @@ export async function streamOllama(
     const { done, value } = await reader.read();
     if (done) break;
     const chunk = decoder.decode(value, { stream: true });
-    // Ollama sends newline-delimited JSON
     for (const line of chunk.split("\n")) {
       if (!line.trim()) continue;
       try {

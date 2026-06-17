@@ -3,7 +3,7 @@
  * All AI model calls route through here — no direct API calls in components.
  */
 
-import { streamChat } from "@/lib/stream-chat";
+import { streamChat, StreamAbortedError } from "@/lib/stream-chat";
 import { streamOllama } from "@/lib/ollama";
 
 export type AIModel = "ollama" | "flash" | "gemini" | "gpt-5";
@@ -11,18 +11,26 @@ export type AIModel = "ollama" | "flash" | "gemini" | "gpt-5";
 export interface StreamOptions {
   model: AIModel;
   prompt: string;
+  /** Slid-window history NOT including the current prompt. */
   conversationHistory: { role: "user" | "assistant"; content: string }[];
+  /** Optional pre-built system prompt (base + summary). */
+  system?: string;
   ollamaModel?: string;
+  signal?: AbortSignal;
   onDelta: (chunk: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
 }
 
+export { StreamAbortedError };
+
 export async function streamAIResponse({
   model,
   prompt,
   conversationHistory,
+  system,
   ollamaModel = "llama3",
+  signal,
   onDelta,
   onDone,
   onError,
@@ -33,6 +41,8 @@ export async function streamAIResponse({
     if (model === "ollama") {
       accumulated = await streamOllama(prompt, {
         model: ollamaModel,
+        system,
+        signal,
         onDelta: (chunk) => {
           accumulated += chunk;
           onDelta(chunk);
@@ -42,6 +52,8 @@ export async function streamAIResponse({
       await streamChat({
         messages: [...conversationHistory, { role: "user", content: prompt }],
         model,
+        system,
+        signal,
         onDelta: (chunk) => {
           accumulated += chunk;
           onDelta(chunk);
@@ -51,6 +63,10 @@ export async function streamAIResponse({
     }
     onDone();
   } catch (err) {
+    if (err instanceof StreamAbortedError || (err as Error)?.name === "AbortError") {
+      // Caller decides how to render partial output; don't toast.
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : "Unknown error";
     onError(msg);
     throw err;
