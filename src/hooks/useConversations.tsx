@@ -7,6 +7,8 @@ export interface Conversation {
   title: string;
   created_at: string;
   updated_at: string;
+  summary: string | null;
+  summary_message_count: number;
 }
 
 export function useConversations() {
@@ -20,7 +22,7 @@ export function useConversations() {
     setLoading(true);
     const { data } = await supabase
       .from("conversations")
-      .select("id, title, created_at, updated_at")
+      .select("id, title, created_at, updated_at, summary, summary_message_count")
       .eq("user_id", user.id)
       .order("updated_at", { ascending: false });
     setConversations(data ?? []);
@@ -37,7 +39,7 @@ export function useConversations() {
       const { data, error } = await supabase
         .from("conversations")
         .insert({ user_id: user.id, title })
-        .select("id, title, created_at, updated_at")
+        .select("id, title, created_at, updated_at, summary, summary_message_count")
         .single();
       if (error || !data) return null;
       setConversations((prev) => [data, ...prev]);
@@ -53,6 +55,19 @@ export function useConversations() {
       prev.map((c) => (c.id === id ? { ...c, title } : c))
     );
   }, []);
+
+  const updateSummary = useCallback(
+    async (id: string, summary: string, messageCount: number) => {
+      await supabase
+        .from("conversations")
+        .update({ summary, summary_message_count: messageCount })
+        .eq("id", id);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, summary, summary_message_count: messageCount } : c))
+      );
+    },
+    []
+  );
 
   const deleteConversation = useCallback(
     async (id: string) => {
@@ -70,6 +85,7 @@ export function useConversations() {
     loading,
     createConversation,
     updateTitle,
+    updateSummary,
     deleteConversation,
     refresh: fetchConversations,
   };
