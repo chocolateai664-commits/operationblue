@@ -14,12 +14,14 @@ import { useAuth } from "@/hooks/useAuth";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessages } from "@/hooks/useMessages";
 import { useUsageTracking } from "@/hooks/useUsageTracking";
-import { streamAIResponse, ALL_MODELS, MODEL_META, type AIModel } from "@/api/ai";
+import { streamAIResponse, ALL_MODELS, MODEL_META, StreamAbortedError, type AIModel } from "@/api/ai";
 import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
+import { buildContextWindow, shouldGenerateSummary, messagesToSummarize, type MemoryMessage } from "@/utils/conversationMemory";
 import { Sparkles, AlertCircle, PanelLeft, PanelRight, Menu, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 interface LocalEntry {
   id: string;
@@ -38,7 +40,7 @@ const LS_RIGHT_OPEN = "optineural:right-open";
 
 const Index = () => {
   const { signOut } = useAuth();
-  const { conversations, activeId, setActiveId, createConversation, deleteConversation } = useConversations();
+  const { conversations, activeId, setActiveId, createConversation, deleteConversation, updateSummary } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
   const { canUseAI, remainingFree, used5h, used24h, FREE_LIMIT, FREE_LIMIT_24H, resetAt, refresh: refreshUsage, isPro } = useUsageTracking();
   const navigate = useNavigate();
@@ -66,7 +68,8 @@ const Index = () => {
     model: "llama3",
   });
   const scrollRef = useRef<HTMLDivElement>(null);
-  const conversationRef = useRef<{ role: "user" | "assistant"; content: string }[]>([]);
+  const conversationRef = useRef<MemoryMessage[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => localStorage.setItem(LS_LEFT_OPEN, leftOpen ? "1" : "0"), [leftOpen]);
   useEffect(() => localStorage.setItem(LS_RIGHT_OPEN, rightOpen ? "1" : "0"), [rightOpen]);
