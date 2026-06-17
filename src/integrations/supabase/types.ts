@@ -18,6 +18,8 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          summary: string | null
+          summary_message_count: number
           title: string
           updated_at: string
           user_id: string
@@ -25,6 +27,8 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          summary?: string | null
+          summary_message_count?: number
           title?: string
           updated_at?: string
           user_id: string
@@ -32,6 +36,8 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          summary?: string | null
+          summary_message_count?: number
           title?: string
           updated_at?: string
           user_id?: string

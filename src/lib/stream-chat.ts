@@ -4,31 +4,48 @@ type Msg = { role: "user" | "assistant"; content: string };
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
+export class StreamAbortedError extends Error {
+  constructor() {
+    super("Stream aborted");
+    this.name = "StreamAbortedError";
+  }
+}
+
 export async function streamChat({
   messages,
   model,
+  system,
+  signal,
   onDelta,
   onDone,
 }: {
   messages: Msg[];
   model: string;
+  system?: string;
+  signal?: AbortSignal;
   onDelta: (deltaText: string) => void;
   onDone: () => void;
 }) {
-  // Get the real user session token for authenticated access
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
     throw new Error("You must be signed in to use AI chat.");
   }
 
-  const resp = await fetch(CHAT_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ messages, model }),
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ messages, model, system }),
+      signal,
+    });
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw new StreamAbortedError();
+    throw err;
+  }
 
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({ error: "Stream failed" }));
@@ -45,38 +62,42 @@ export async function streamChat({
   let textBuffer = "";
   let streamDone = false;
 
-  while (!streamDone) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    textBuffer += decoder.decode(value, { stream: true });
+  try {
+    while (!streamDone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      textBuffer += decoder.decode(value, { stream: true });
 
-    let newlineIndex: number;
-    while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
-      let line = textBuffer.slice(0, newlineIndex);
-      textBuffer = textBuffer.slice(newlineIndex + 1);
+      let newlineIndex: number;
+      while ((newlineIndex = textBuffer.indexOf("\n")) !== -1) {
+        let line = textBuffer.slice(0, newlineIndex);
+        textBuffer = textBuffer.slice(newlineIndex + 1);
 
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line.startsWith(":") || line.trim() === "") continue;
-      if (!line.startsWith("data: ")) continue;
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line.startsWith(":") || line.trim() === "") continue;
+        if (!line.startsWith("data: ")) continue;
 
-      const jsonStr = line.slice(6).trim();
-      if (jsonStr === "[DONE]") {
-        streamDone = true;
-        break;
-      }
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === "[DONE]") {
+          streamDone = true;
+          break;
+        }
 
-      try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-        if (content) onDelta(content);
-      } catch {
-        textBuffer = line + "\n" + textBuffer;
-        break;
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+          if (content) onDelta(content);
+        } catch {
+          textBuffer = line + "\n" + textBuffer;
+          break;
+        }
       }
     }
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw new StreamAbortedError();
+    throw err;
   }
 
-  // Flush remaining buffer
   if (textBuffer.trim()) {
     for (let raw of textBuffer.split("\n")) {
       if (!raw) continue;

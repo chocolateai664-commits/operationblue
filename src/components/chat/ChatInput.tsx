@@ -1,14 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Plus, X, Search, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Send, Plus, X, Search, ChevronDown, ChevronUp, Loader2, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { chunkText } from "@/utils/chunk";
+import { compressContext } from "@/utils/compressContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const MAX_FILE_SIZE = 500_000;
-const MAX_CONTENT_LENGTH = 10_000;
 const MAX_FILES = 20;
-const MAX_TOTAL_SIZE = 1_000_000;
+const MAX_TOTAL_SIZE = 200_000; // 200KB total content budget after compression
 const TEXT_EXTENSIONS = /\.(txt|json|csv|xml|md|js|ts|jsx|tsx)$/i;
 const ACCEPTED_FILE_TYPES = ".txt,.json,.csv,.xml,.md,.js,.ts,.jsx,.tsx,.doc,.docx,.pdf,.zip";
 
@@ -19,21 +19,24 @@ interface AttachedFile {
 
 interface ChatInputProps {
   onSend: (message: string) => void;
+  onStop?: () => void;
+  isStreaming?: boolean;
   disabled?: boolean;
 }
 
 async function summarizeContent(text: string): Promise<string> {
-  if (text.length < 2000) return text;
+  // Already small enough — just compress whitespace/dedupe and apply doc limit.
+  if (text.length < 4000) return compressContext(text, "doc");
   const chunks = chunkText(text, 2000);
   try {
     const { data, error } = await supabase.functions.invoke("summarize", {
       body: { chunks },
     });
     if (error) throw error;
-    return data?.summary || text.slice(0, MAX_CONTENT_LENGTH);
+    return compressContext(data?.summary || text, "doc");
   } catch (e) {
-    console.error("Summarization failed, using truncated content:", e);
-    return text.slice(0, MAX_CONTENT_LENGTH);
+    console.error("Summarization failed, using compressed content:", e);
+    return compressContext(text, "doc");
   }
 }
 
@@ -66,7 +69,7 @@ function collectEntriesRecursively(entry: FileSystemEntry): Promise<File[]> {
   });
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [summarizing, setSummarizing] = useState(false);
@@ -168,6 +171,10 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   };
 
   const handleSubmit = () => {
+    if (isStreaming) {
+      onStop?.();
+      return;
+    }
     if ((!value.trim() && attachedFiles.length === 0) || disabled || summarizing) return;
     onSend(formatMessage(value.trim()));
     setValue("");
@@ -182,7 +189,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
     }
   };
 
-  const isDisabled = disabled || summarizing;
+  const isDisabled = (disabled && !isStreaming) || summarizing;
   const filteredFiles = filterQuery
     ? attachedFiles.filter((f) => f.name.toLowerCase().includes(filterQuery.toLowerCase()))
     : attachedFiles;
@@ -198,14 +205,12 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      {/* Drag overlay */}
       {isDragging && (
         <div className="absolute inset-0 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm pointer-events-none">
           <p className="text-sm font-medium text-primary">Drop files or folders here</p>
         </div>
       )}
 
-      {/* Summarizing indicator */}
       {summarizing && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" />
@@ -213,7 +218,6 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         </div>
       )}
 
-      {/* File list with search */}
       {attachedFiles.length > 0 && (
         <div className="space-y-1.5">
           {showSearch && (
@@ -229,7 +233,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-1.5">
-            {visibleFiles.map((file, i) => {
+            {visibleFiles.map((file) => {
               const realIndex = attachedFiles.indexOf(file);
               return (
                 <Badge key={realIndex} variant="secondary" className="flex items-center gap-1 text-xs max-w-[200px]">
@@ -260,14 +264,12 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         </div>
       )}
 
-      {/* Input row */}
       <div className="relative flex items-end gap-2 bg-secondary/60 border border-border rounded-2xl px-3 py-3 backdrop-blur-sm">
-        {/* Upload button */}
         <div className="flex items-center flex-shrink-0">
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={isDisabled}
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
+            disabled={isDisabled || isStreaming}
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors disabled:opacity-40"
             title="Attach files or folder"
           >
             <Plus className="w-4 h-4" />
@@ -288,22 +290,26 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Send a message..."
-          disabled={isDisabled}
+          placeholder={isStreaming ? "Generating… press stop to cancel" : "Send a message..."}
+          disabled={isDisabled || isStreaming}
           rows={1}
-          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none max-h-40 scrollbar-thin"
+          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground resize-none outline-none max-h-40 scrollbar-thin disabled:opacity-60"
         />
         <button
           onClick={handleSubmit}
-          disabled={isDisabled || (!value.trim() && attachedFiles.length === 0)}
+          disabled={!isStreaming && (isDisabled || (!value.trim() && attachedFiles.length === 0))}
           className={cn(
             "flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200",
-            (value.trim() || attachedFiles.length > 0) && !isDisabled
-              ? "bg-primary text-primary-foreground hover:bg-primary/80"
-              : "bg-muted text-muted-foreground"
+            isStreaming
+              ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              : (value.trim() || attachedFiles.length > 0) && !isDisabled
+                ? "bg-primary text-primary-foreground hover:bg-primary/80"
+                : "bg-muted text-muted-foreground"
           )}
+          aria-label={isStreaming ? "Stop generation" : "Send message"}
+          title={isStreaming ? "Stop generation" : "Send message"}
         >
-          <Send className="w-4 h-4" />
+          {isStreaming ? <Square className="w-3.5 h-3.5 fill-current" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
     </div>

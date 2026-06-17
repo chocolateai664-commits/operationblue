@@ -62,10 +62,10 @@ serve(async (req) => {
 
     const userId = data.claims.sub as string;
 
-    const { messages, model } = await req.json();
+    const { messages, model, system } = await req.json();
 
-    // Estimate input tokens
-    const inputText = messages.map((m: any) => m.content).join(" ");
+    // Estimate input tokens (include system prompt)
+    const inputText = (system ? system + " " : "") + messages.map((m: any) => m.content).join(" ");
     const inputTokens = estimateTokens(inputText);
 
     if (inputTokens > MAX_INPUT_TOKENS) {
@@ -140,24 +140,14 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `You are a highly intelligent, precise, and practical AI assistant.
-
-Your responses must:
-- Be clear, structured, and well-organized
-- Fully answer the question (no incomplete responses)
-- Avoid generic or shallow explanations
-- Provide actionable insights when possible
-- Use headings and bullet points when helpful
-
-Rules:
-- If the request is complex, break it into steps
-- If unclear, make reasonable assumptions and proceed
-- Do not produce unfinished answers
-- Think through the best possible response before answering
-
-Before finalizing:
-- Check if the answer is complete and useful
-- Improve clarity and structure if needed`,
+            content: system && typeof system === "string" && system.trim().length > 0
+              ? system
+              : `You are a precise, implementation-focused AI assistant.
+- Keep replies under 300 words by default.
+- Keep code under 50 lines and show only the relevant snippet.
+- Prefer bullet points; avoid repeating prior explanations.
+- Do not generate full applications unless explicitly requested.
+- Preserve markdown formatting.`,
           },
           ...messages,
         ],
