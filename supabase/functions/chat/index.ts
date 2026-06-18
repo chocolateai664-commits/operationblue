@@ -83,6 +83,7 @@ serve(async (req) => {
     });
 
     // Rolling 5h / 24h quota check (free users only; pro/admin pass through)
+    // FAIL CLOSED: any quota validation failure must reject the request.
     {
       const { error: quotaError } = await userClient.rpc("check_rolling_quota");
       if (quotaError) {
@@ -103,7 +104,21 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": String(retrySeconds) },
           });
         }
-        console.error("Quota check error:", quotaError);
+        if (/QUOTA_UNAUTHENTICATED/i.test(msg)) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), {
+            status: 401,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        // Unknown error from quota RPC → fail closed.
+        console.error("Quota check error (failing closed):", quotaError);
+        return new Response(JSON.stringify({
+          error: "QUOTA_CHECK_FAILED",
+          message: "Could not verify usage quota. Please try again shortly.",
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 
