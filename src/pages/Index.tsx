@@ -159,7 +159,11 @@ const Index = () => {
         if (!convId) return;
       }
 
-      await saveMessage(convId, "user", text);
+      const userSave = await saveMessage(convId, "user", text);
+      if (!userSave.ok) {
+        // Persistence failed — surface and abort so we don't pretend the message was saved.
+        return;
+      }
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
       refreshUsage();
