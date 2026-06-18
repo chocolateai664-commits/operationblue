@@ -159,7 +159,11 @@ const Index = () => {
         if (!convId) return;
       }
 
-      await saveMessage(convId, "user", text);
+      const userSave = await saveMessage(convId, "user", text);
+      if (!userSave.ok) {
+        // Persistence failed — surface and abort so we don't pretend the message was saved.
+        return;
+      }
       conversationRef.current.push({ role: "user", content: text });
       setIsLoading(true);
       refreshUsage();
@@ -275,8 +279,10 @@ const Index = () => {
           const final = aborted && accumulated ? `${accumulated}\n\n_Stopped._` : accumulated;
           update(final, false);
           if (final.trim()) {
-            await saveMessage(convId, "assistant", final, model);
-            conversationRef.current.push({ role: "assistant", content: final });
+            const saved = await saveMessage(convId, "assistant", final, model);
+            if (saved.ok) {
+              conversationRef.current.push({ role: "assistant", content: final });
+            }
           }
           setLiveEntries((prev) => prev.filter((e) => e.id !== assistantId));
 
