@@ -135,7 +135,15 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        console.error("Usage tracking error:", usageError);
+        // FAIL CLOSED on unexpected usage-tracking errors.
+        console.error("Usage tracking error (failing closed):", usageError);
+        return new Response(JSON.stringify({
+          error: "USAGE_TRACKING_FAILED",
+          message: "Could not record usage. Please try again shortly.",
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
     }
 
