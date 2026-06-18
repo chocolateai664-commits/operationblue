@@ -279,8 +279,10 @@ const Index = () => {
           const final = aborted && accumulated ? `${accumulated}\n\n_Stopped._` : accumulated;
           update(final, false);
           if (final.trim()) {
-            await saveMessage(convId, "assistant", final, model);
-            conversationRef.current.push({ role: "assistant", content: final });
+            const saved = await saveMessage(convId, "assistant", final, model);
+            if (saved.ok) {
+              conversationRef.current.push({ role: "assistant", content: final });
+            }
           }
           setLiveEntries((prev) => prev.filter((e) => e.id !== assistantId));
 
