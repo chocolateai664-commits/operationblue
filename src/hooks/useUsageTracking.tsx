@@ -34,16 +34,30 @@ export function useUsageTracking() {
   }, []);
 
   const fetchUsage = useCallback(async () => {
-    if (!user) return;
-    const { data, error } = await supabase.rpc("get_rolling_usage");
-    if (!error && data) {
-      const u = data as unknown as RollingUsage;
-      setIsPro(!!u.is_pro);
-      setUsed5h(u.used_5h ?? 0);
-      setUsed24h(u.used_24h ?? 0);
-      setResetAt(u.reset_at ? new Date(u.reset_at) : null);
+    if (!user) {
+      setIsPro(false);
+      setUsed5h(0);
+      setUsed24h(0);
+      setResetAt(null);
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.rpc("get_rolling_usage");
+      if (!error && data) {
+        const u = data as unknown as RollingUsage;
+        setIsPro(!!u.is_pro);
+        setUsed5h(u.used_5h ?? 0);
+        setUsed24h(u.used_24h ?? 0);
+        setResetAt(u.reset_at ? new Date(u.reset_at) : null);
+      } else if (error) {
+        console.error("get_rolling_usage error:", error);
+      }
+    } catch (e) {
+      console.error("fetchUsage exception:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
   useEffect(() => {
