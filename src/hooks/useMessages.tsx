@@ -60,7 +60,16 @@ export function useMessages() {
 
       if (error || !data) {
         const msg = error?.message ?? "Unknown error saving message";
-        console.error("saveMessage error:", error);
+        console.error(JSON.stringify({
+          scope: "useMessages",
+          event: "save_message_failed",
+          conversationId,
+          role,
+          model: model ?? null,
+          contentLen: content.length,
+          code: error?.code,
+          message: msg,
+        }));
         toast.error(`Message not saved: ${msg}`);
         return { ok: false, data: null, error: msg };
       }
