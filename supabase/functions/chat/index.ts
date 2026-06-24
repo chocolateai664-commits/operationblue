@@ -148,36 +148,126 @@ serve(async (req) => {
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-    const gatewayModel = modelMap[model] || "google/gemini-3-flash-preview";
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: gatewayModel,
-        messages: [
-          {
-            role: "system",
-            content: system && typeof system === "string" && system.trim().length > 0
-              ? system
-              : `You are a precise, implementation-focused AI assistant.
+    const systemPrompt =
+      system && typeof system === "string" && system.trim().length > 0
+        ? system
+        : `You are a precise, implementation-focused AI assistant.
 - Keep replies under 300 words by default.
 - Keep code under 50 lines and show only the relevant snippet.
 - Prefer bullet points; avoid repeating prior explanations.
 - Do not generate full applications unless explicitly requested.
-- Preserve markdown formatting.`,
-          },
-          ...messages,
-        ],
-        stream: true,
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
-      }),
-    });
+- Preserve markdown formatting.`;
+
+    // Provider resolution: prefer Lovable Gateway when configured.
+    // Fallbacks: OpenAI direct for gpt-* models, Gemini direct for flash/gemini.
+    type Provider = "lovable" | "openai" | "gemini";
+    let provider: Provider;
+    if (LOVABLE_API_KEY) {
+      provider = "lovable";
+    } else if (model === "gpt-5" && OPENAI_API_KEY) {
+      provider = "openai";
+    } else if ((model === "flash" || model === "gemini") && GEMINI_API_KEY) {
+      provider = "gemini";
+    } else if (OPENAI_API_KEY) {
+      provider = "openai";
+    } else if (GEMINI_API_KEY) {
+      provider = "gemini";
+    } else {
+      throw new Error("No AI provider configured. Set LOVABLE_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.");
+    }
+
+    let response: Response;
+    if (provider === "lovable") {
+      const gatewayModel = modelMap[model] || "google/gemini-3-flash-preview";
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: gatewayModel,
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+          stream: true,
+          max_completion_tokens: MAX_OUTPUT_TOKENS,
+        }),
+      });
+    } else if (provider === "openai") {
+      const openaiModel = model === "gpt-5" ? "gpt-4o" : "gpt-4o-mini";
+      response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: openaiModel,
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+          stream: true,
+          max_tokens: MAX_OUTPUT_TOKENS,
+        }),
+      });
+    } else {
+      // Gemini direct → translate SSE chunks into OpenAI-compatible shape.
+      const geminiModel = model === "gemini" ? "gemini-2.5-pro" : "gemini-2.0-flash";
+      const contents = messages.map((m: any) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.content }],
+      }));
+      const geminiResp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents,
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS },
+          }),
+        }
+      );
+
+      if (!geminiResp.ok || !geminiResp.body) {
+        const t = await geminiResp.text().catch(() => "");
+        console.error("Gemini error:", geminiResp.status, t);
+        return new Response(JSON.stringify({ error: `Gemini error (${geminiResp.status})` }), {
+          status: geminiResp.status === 429 ? 429 : 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Re-emit as OpenAI-style SSE so src/lib/stream-chat.ts parses it unchanged.
+      const reader = geminiResp.body.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      let buf = "";
+      const stream = new ReadableStream({
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
+          buf += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buf.indexOf("\n")) !== -1) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line.startsWith("data:")) continue;
+            const json = line.slice(5).trim();
+            if (!json) continue;
+            try {
+              const parsed = JSON.parse(json);
+              const text = parsed?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
+              if (text) {
+                const chunk = { choices: [{ delta: { content: text } }] };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+              }
+            } catch { /* ignore partial */ }
+          }
+        },
+      });
+
+      response = new Response(stream, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    }
 
     if (!response.ok) {
       if (response.status === 429) {
