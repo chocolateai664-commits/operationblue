@@ -138,7 +138,7 @@ serve(async (req) => {
           });
         }
         // Unknown error from quota RPC → fail closed.
-        console.error("Quota check error (failing closed):", quotaError);
+        slog("error", "quota_rpc_failed", { userId, code: quotaError.code, message: quotaError.message });
         return new Response(JSON.stringify({
           error: "QUOTA_CHECK_FAILED",
           message: "Could not verify usage quota. Please try again shortly.",
