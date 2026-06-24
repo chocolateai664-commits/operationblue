@@ -2,14 +2,34 @@
 
 AI workspace built on Vite + React + Supabase. Runs locally and on Vercel; Supabase remains the backend (Auth, Postgres, Edge Functions).
 
+## Environment variables
+
+All client-side vars MUST be prefixed `VITE_`. Provider secrets live in Supabase, never in `.env`.
+
+| Var | Where | Required | Notes |
+| --- | --- | --- | --- |
+| `VITE_SUPABASE_URL` | `.env` + Vercel | ✅ | Project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | `.env` + Vercel | ✅ | Anon/publishable key (safe in browser) |
+| `VITE_SUPABASE_PROJECT_ID` | `.env` + Vercel | ✅ | Used by generated client |
+| `LOVABLE_API_KEY` | Supabase secrets | optional | Preferred AI provider when present |
+| `OPENAI_API_KEY` | Supabase secrets | optional | Fallback for `gpt-*` models |
+| `GEMINI_API_KEY` | Supabase secrets | optional | Fallback for `flash` / `gemini` |
+| `STRIPE_SECRET_KEY` | Supabase secrets | ✅ for billing | |
+| `SMOKE_TEST_TOKEN` | local shell | for `npm run smoke:chat` | A user JWT |
+
+Copy `.env.example` → `.env` and fill the three `VITE_*` values. On Vercel set the same three under **Project → Settings → Environment Variables** for Production, Preview, and Development. The app will fail to boot if any are missing — Vite throws at import time and the chat edge function returns `500 Server misconfigured: SUPABASE_URL/SUPABASE_ANON_KEY not set` with a structured log line.
+
 ## Local development
 
 ```bash
-bun install         # or npm install
-bun run dev         # Vite on http://localhost:8080
+bun install              # or npm install
+bun run dev              # Vite on http://localhost:8080
+npm run sb:start         # boot the local Supabase stack (Docker required)
+npm run sb:serve         # serve the chat edge function on :54321
+npm run smoke:chat       # end-to-end test (needs SMOKE_TEST_TOKEN)
 ```
 
-`.env` already contains the Supabase URL and publishable key. No other client-side env vars are required.
+
 
 ## Deploy to Vercel
 
