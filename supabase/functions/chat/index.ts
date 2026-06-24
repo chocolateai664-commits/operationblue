@@ -35,26 +35,53 @@ function calculateCost(model: string, inputTokens: number, outputTokens: number)
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const reqId = crypto.randomUUID();
+  const slog = (level: "info" | "warn" | "error", event: string, fields: Record<string, unknown> = {}) => {
+    try {
+      console[level === "info" ? "log" : level](
+        JSON.stringify({ ts: new Date().toISOString(), reqId, fn: "chat", level, event, ...fields })
+      );
+    } catch { /* ignore */ }
+  };
+
   try {
+    // Validate required env (clear failure on Vercel/local misconfig)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseKey) {
+      slog("error", "missing_env", { hasUrl: !!supabaseUrl, hasAnon: !!supabaseKey });
+      return new Response(JSON.stringify({ error: "Server misconfigured: SUPABASE_URL/SUPABASE_ANON_KEY not set" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Authenticate user - REQUIRED
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      slog("warn", "auth_missing_header");
+      return new Response(JSON.stringify({ error: "Unauthorized: missing Bearer token. Sign in and retry." }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token || token.split(".").length !== 3) {
+      slog("warn", "auth_malformed_token", { len: token.length });
+      return new Response(JSON.stringify({ error: "Unauthorized: malformed access token. Re-authenticate." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    const token = authHeader.replace("Bearer ", "");
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data, error: claimsError } = await supabase.auth.getClaims(token);
     if (claimsError || !data?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      slog("warn", "auth_invalid_claims", { err: claimsError?.message });
+      return new Response(JSON.stringify({ error: "Unauthorized: invalid or expired session. Sign in again." }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
