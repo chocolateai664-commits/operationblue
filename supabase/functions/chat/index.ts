@@ -163,7 +163,7 @@ serve(async (req) => {
           });
         }
         // FAIL CLOSED on unexpected usage-tracking errors.
-        console.error("Usage tracking error (failing closed):", usageError);
+        slog("error", "usage_rpc_failed", { userId, code: usageError.code, message: usageError.message, inputTokens, estimatedCost });
         return new Response(JSON.stringify({
           error: "USAGE_TRACKING_FAILED",
           message: "Could not record usage. Please try again shortly.",
