@@ -338,8 +338,8 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
-    console.error("chat error:", e);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
+    slog("error", "unhandled", { message: (e as Error)?.message, stack: (e as Error)?.stack?.slice(0, 800) });
+    return new Response(JSON.stringify({ error: "Internal server error", reqId }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
