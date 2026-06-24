@@ -95,6 +95,13 @@ export async function streamChat({
     }
   } catch (err) {
     if ((err as Error).name === "AbortError") throw new StreamAbortedError();
+    console.error(JSON.stringify({
+      scope: "stream-chat",
+      event: "stream_interrupted",
+      message: (err as Error)?.message,
+      model,
+      bufferedChars: textBuffer.length,
+    }));
     throw err;
   }
 

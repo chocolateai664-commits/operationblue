@@ -35,26 +35,53 @@ function calculateCost(model: string, inputTokens: number, outputTokens: number)
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const reqId = crypto.randomUUID();
+  const slog = (level: "info" | "warn" | "error", event: string, fields: Record<string, unknown> = {}) => {
+    try {
+      console[level === "info" ? "log" : level](
+        JSON.stringify({ ts: new Date().toISOString(), reqId, fn: "chat", level, event, ...fields })
+      );
+    } catch { /* ignore */ }
+  };
+
   try {
+    // Validate required env (clear failure on Vercel/local misconfig)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!supabaseUrl || !supabaseKey) {
+      slog("error", "missing_env", { hasUrl: !!supabaseUrl, hasAnon: !!supabaseKey });
+      return new Response(JSON.stringify({ error: "Server misconfigured: SUPABASE_URL/SUPABASE_ANON_KEY not set" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Authenticate user - REQUIRED
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      slog("warn", "auth_missing_header");
+      return new Response(JSON.stringify({ error: "Unauthorized: missing Bearer token. Sign in and retry." }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token || token.split(".").length !== 3) {
+      slog("warn", "auth_malformed_token", { len: token.length });
+      return new Response(JSON.stringify({ error: "Unauthorized: malformed access token. Re-authenticate." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    const token = authHeader.replace("Bearer ", "");
     const supabase = createClient(supabaseUrl, supabaseKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data, error: claimsError } = await supabase.auth.getClaims(token);
     if (claimsError || !data?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      slog("warn", "auth_invalid_claims", { err: claimsError?.message });
+      return new Response(JSON.stringify({ error: "Unauthorized: invalid or expired session. Sign in again." }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -111,7 +138,7 @@ serve(async (req) => {
           });
         }
         // Unknown error from quota RPC → fail closed.
-        console.error("Quota check error (failing closed):", quotaError);
+        slog("error", "quota_rpc_failed", { userId, code: quotaError.code, message: quotaError.message });
         return new Response(JSON.stringify({
           error: "QUOTA_CHECK_FAILED",
           message: "Could not verify usage quota. Please try again shortly.",
@@ -136,7 +163,7 @@ serve(async (req) => {
           });
         }
         // FAIL CLOSED on unexpected usage-tracking errors.
-        console.error("Usage tracking error (failing closed):", usageError);
+        slog("error", "usage_rpc_failed", { userId, code: usageError.code, message: usageError.message, inputTokens, estimatedCost });
         return new Response(JSON.stringify({
           error: "USAGE_TRACKING_FAILED",
           message: "Could not record usage. Please try again shortly.",
@@ -283,7 +310,7 @@ serve(async (req) => {
         });
       }
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
+      slog("error", "ai_gateway_error", { provider, status: response.status, body: t.slice(0, 500) });
       return new Response(JSON.stringify({ error: `AI gateway error (${response.status})` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -303,7 +330,7 @@ serve(async (req) => {
           _cost: estimatedCost,
         });
       } catch (logErr) {
-        console.error("Request logging error:", logErr);
+        slog("error", "log_request_failed", { message: (logErr as Error)?.message });
       }
     }
 
@@ -311,8 +338,8 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {
-    console.error("chat error:", e);
-    return new Response(JSON.stringify({ error: "Internal server error" }), {
+    slog("error", "unhandled", { message: (e as Error)?.message, stack: (e as Error)?.stack?.slice(0, 800) });
+    return new Response(JSON.stringify({ error: "Internal server error", reqId }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
