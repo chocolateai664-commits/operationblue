@@ -67,7 +67,39 @@ supabase secrets set GEMINI_API_KEY=...
 
 To run fully off Lovable, remove `LOVABLE_API_KEY` from Supabase secrets so the function falls back to your own keys.
 
+## Smoke testing
+
+`scripts/smoke-chat.mjs` runs end-to-end against any deployment:
+
+```bash
+# Local
+SMOKE_TEST_TOKEN=<user-jwt> npm run smoke:chat
+
+# Vercel / production
+SMOKE_TEST_TOKEN=<user-jwt> VITE_SUPABASE_URL=https://xxx.supabase.co npm run smoke:chat
+```
+
+It asserts: (1) the function returns 401 without auth, (2) `text/event-stream` is returned with valid auth, (3) at least one `delta.content` chunk is parsed, (4) the response is non-empty — covering streaming + persistence path (messages save client-side after the stream completes; check Supabase `messages` table for the latest row).
+
+## Structured logs
+
+All chat function failures emit single-line JSON with `reqId`, `event`, and context — grep them in Vercel/Supabase logs:
+
+```
+event=auth_missing_header        # client sent no Bearer
+event=auth_malformed_token       # JWT structure invalid
+event=auth_invalid_claims        # token expired / signature bad
+event=missing_env                # SUPABASE_URL or SUPABASE_ANON_KEY unset
+event=quota_rpc_failed           # check_rolling_quota failed → 503
+event=usage_rpc_failed           # increment_usage failed → 503
+event=ai_gateway_error           # upstream provider non-2xx
+event=unhandled                  # uncaught – includes stack
+```
+
+Client-side equivalents are logged via `console.error` with `scope: "stream-chat"` (stream interruptions) and `scope: "useMessages"` (persistence failures).
+
 ## Notes
 
 - Auth, RLS, quotas (`check_rolling_quota`, `increment_usage`), conversations/messages, Stripe subscriptions — all unchanged.
 - The `lovable-tagger` Vite plugin is dev-only and not included in production builds.
+
