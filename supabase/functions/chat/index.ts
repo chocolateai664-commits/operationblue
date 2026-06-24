@@ -330,7 +330,7 @@ serve(async (req) => {
           _cost: estimatedCost,
         });
       } catch (logErr) {
-        console.error("Request logging error:", logErr);
+        slog("error", "log_request_failed", { message: (logErr as Error)?.message });
       }
     }
 
