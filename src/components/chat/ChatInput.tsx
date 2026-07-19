@@ -87,6 +87,17 @@ export function ChatInput({ onSend, onStop, isStreaming, disabled }: ChatInputPr
     }
   }, [value]);
 
+  // Pick up a prompt seeded by Discover (chat starters / saved items)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pending = sessionStorage.getItem("optineural:pending_prompt");
+    if (pending) {
+      sessionStorage.removeItem("optineural:pending_prompt");
+      setValue(pending);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, []);
+
   const addFiles = useCallback(async (files: File[]) => {
     setSummarizing(true);
     try {
