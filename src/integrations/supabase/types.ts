@@ -109,6 +109,39 @@ export type Database = {
         }
         Relationships: []
       }
+      saved_items: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          prompt: string | null
+          source: string
+          summary: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          prompt?: string | null
+          source?: string
+          summary?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          prompt?: string | null
+          source?: string
+          summary?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       usage_tracking: {
         Row: {
           cost_reset_at: string
