@@ -79,48 +79,6 @@ export type Database = {
           },
         ]
       }
-      orders: {
-        Row: {
-          amount_total: number | null
-          created_at: string
-          currency: string | null
-          customer_email: string | null
-          id: string
-          metadata: Json
-          status: string
-          stripe_payment_intent_id: string | null
-          stripe_session_id: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          amount_total?: number | null
-          created_at?: string
-          currency?: string | null
-          customer_email?: string | null
-          id?: string
-          metadata?: Json
-          status?: string
-          stripe_payment_intent_id?: string | null
-          stripe_session_id?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          amount_total?: number | null
-          created_at?: string
-          currency?: string | null
-          customer_email?: string | null
-          id?: string
-          metadata?: Json
-          status?: string
-          stripe_payment_intent_id?: string | null
-          stripe_session_id?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       request_logs: {
         Row: {
           cost: number
@@ -150,41 +108,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      stripe_events: {
-        Row: {
-          created_at: string
-          id: string
-          order_id: string | null
-          payload: Json
-          stripe_event_id: string
-          type: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          order_id?: string | null
-          payload: Json
-          stripe_event_id: string
-          type: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          order_id?: string | null
-          payload?: Json
-          stripe_event_id?: string
-          type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stripe_events_order_id_fkey"
-            columns: ["order_id"]
-            isOneToOne: false
-            referencedRelation: "orders"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       usage_tracking: {
         Row: {
@@ -218,6 +141,27 @@ export type Database = {
           monthly_tokens?: number
           total_requests?: number
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_interests: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
           user_id?: string
         }
         Relationships: []
