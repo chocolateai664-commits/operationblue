@@ -10,8 +10,8 @@ const Index = lazy(() => import("./pages/Index.tsx"));
 const Auth = lazy(() => import("./pages/Auth.tsx"));
 const Pricing = lazy(() => import("./pages/Pricing.tsx"));
 const Landing = lazy(() => import("./pages/Landing.tsx"));
-const Orders = lazy(() => import("./pages/Orders.tsx"));
-const OrderDetail = lazy(() => import("./pages/OrderDetail.tsx"));
+const Discover = lazy(() => import("./pages/Discover.tsx"));
+const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
