@@ -12,7 +12,6 @@ const Pricing = lazy(() => import("./pages/Pricing.tsx"));
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const Discover = lazy(() => import("./pages/Discover.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
-const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
 
@@ -48,8 +47,7 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/chat" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-            <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
-            <Route path="/orders/:id" element={<ProtectedRoute><OrderDetail /></ProtectedRoute>} />
+            <Route path="/discover" element={<ProtectedRoute><Discover /></ProtectedRoute>} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
             <Route path="*" element={<NotFound />} />
