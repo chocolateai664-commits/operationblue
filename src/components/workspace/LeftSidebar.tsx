@@ -100,6 +100,24 @@ export function LeftSidebar({
         </button>
       </div>
 
+      {/* Navigation */}
+      <div className="px-2 pt-2 space-y-0.5">
+        <button
+          onClick={() => navigate("/marketplace")}
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-md text-[13px] text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <Store className="w-3.5 h-3.5" />
+          Marketplace
+        </button>
+        <button
+          onClick={() => navigate("/discover")}
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-md text-[13px] text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <Compass className="w-3.5 h-3.5" />
+          Discover
+        </button>
+      </div>
+
       {/* Search */}
       <div className="px-2 pt-2">
         <div className="relative">
