@@ -44,6 +44,131 @@ export type Database = {
         }
         Relationships: []
       }
+      listing_messages: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          listing_id: string
+          recipient_id: string
+          sender_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          listing_id: string
+          recipient_id: string
+          sender_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          listing_id?: string
+          recipient_id?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listing_messages_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listings: {
+        Row: {
+          arr: number
+          asking_price: number
+          assets_included: string[]
+          badges: string[]
+          cac: number
+          category: Database["public"]["Enums"]["listing_category"]
+          company_name: string | null
+          company_url: string | null
+          created_at: string
+          description: string
+          financing_available: boolean
+          growth_opportunities: string
+          headline: string
+          id: string
+          ltv: number
+          monthly_stats: Json
+          mrr: number
+          profit_margin: number
+          reason_for_selling: string
+          seller_id: string | null
+          slug: string
+          status: Database["public"]["Enums"]["listing_status"]
+          stripe_account_ref: string | null
+          tech_stack: string[]
+          ttm_profit: number
+          ttm_revenue: number
+          updated_at: string
+        }
+        Insert: {
+          arr?: number
+          asking_price?: number
+          assets_included?: string[]
+          badges?: string[]
+          cac?: number
+          category?: Database["public"]["Enums"]["listing_category"]
+          company_name?: string | null
+          company_url?: string | null
+          created_at?: string
+          description?: string
+          financing_available?: boolean
+          growth_opportunities?: string
+          headline: string
+          id?: string
+          ltv?: number
+          monthly_stats?: Json
+          mrr?: number
+          profit_margin?: number
+          reason_for_selling?: string
+          seller_id?: string | null
+          slug: string
+          status?: Database["public"]["Enums"]["listing_status"]
+          stripe_account_ref?: string | null
+          tech_stack?: string[]
+          ttm_profit?: number
+          ttm_revenue?: number
+          updated_at?: string
+        }
+        Update: {
+          arr?: number
+          asking_price?: number
+          assets_included?: string[]
+          badges?: string[]
+          cac?: number
+          category?: Database["public"]["Enums"]["listing_category"]
+          company_name?: string | null
+          company_url?: string | null
+          created_at?: string
+          description?: string
+          financing_available?: boolean
+          growth_opportunities?: string
+          headline?: string
+          id?: string
+          ltv?: number
+          monthly_stats?: Json
+          mrr?: number
+          profit_margin?: number
+          reason_for_selling?: string
+          seller_id?: string | null
+          slug?: string
+          status?: Database["public"]["Enums"]["listing_status"]
+          stripe_account_ref?: string | null
+          tech_stack?: string[]
+          ttm_profit?: number
+          ttm_revenue?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           content: string
@@ -75,6 +200,38 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      nda_signatures: {
+        Row: {
+          buyer_id: string
+          full_name: string
+          id: string
+          listing_id: string
+          signed_at: string
+        }
+        Insert: {
+          buyer_id: string
+          full_name: string
+          id?: string
+          listing_id: string
+          signed_at?: string
+        }
+        Update: {
+          buyer_id?: string
+          full_name?: string
+          id?: string
+          listing_id?: string
+          signed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nda_signatures_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "listings"
             referencedColumns: ["id"]
           },
         ]
@@ -223,6 +380,14 @@ export type Database = {
     }
     Functions: {
       check_rolling_quota: { Args: never; Returns: Json }
+      get_listing_private: {
+        Args: { _listing_id: string }
+        Returns: {
+          company_name: string
+          company_url: string
+          stripe_account_ref: string
+        }[]
+      }
       get_rolling_usage: { Args: never; Returns: Json }
       has_role: {
         Args: {
@@ -246,6 +411,8 @@ export type Database = {
     }
     Enums: {
       app_role: "user" | "pro" | "admin"
+      listing_category: "saas" | "ecommerce" | "mobile" | "other"
+      listing_status: "draft" | "active" | "sold"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -374,6 +541,8 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["user", "pro", "admin"],
+      listing_category: ["saas", "ecommerce", "mobile", "other"],
+      listing_status: ["draft", "active", "sold"],
     },
   },
 } as const
