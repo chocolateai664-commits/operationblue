@@ -1,73 +1,81 @@
-# Run Operation Blue locally and on Vercel (hybrid AI)
+# Marketplace Build Plan
 
-Yes — the app can run locally and deploy to Vercel. The frontend is a standard Vite + React SPA, and the backend already lives in Supabase (Edge Functions + Postgres), which is independent of Lovable hosting. The only Lovable-specific piece is the AI Gateway call inside `supabase/functions/chat/index.ts`, which we'll make swappable so you can run in **hybrid mode**: Lovable Gateway when `LOVABLE_API_KEY` is present, your own OpenAI / Gemini keys otherwise.
+Add an Acquire.com-inspired marketplace layer to the existing app without disturbing the current chat/discover product. All new routes live under `/marketplace` and `/sell`.
 
-## What works as-is
+## 1. Data (Supabase migration)
 
-- `src/` — pure Vite/React, no Lovable runtime dependency.
-- Supabase client (`src/integrations/supabase/client.ts`) — reads `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` from `.env`. Works anywhere.
-- Auth, RLS, RPCs (`check_rolling_quota`, `increment_usage`, `log_request`), conversations/messages tables — all hosted on your Supabase project, unaffected.
-- Edge Functions (`chat`, `summarize`, `check-subscription`, `create-checkout`, `customer-portal`) — already deployed to Supabase; we'll keep deploying them there via Supabase CLI.
+New tables in `public`, all with RLS + explicit GRANTs:
 
-## What needs adapting
+- **listings** — public-safe metadata + private locked fields.
+  - Public: `id`, `slug`, `category` (saas|ecommerce|mobile|other), `headline` (anonymized, e.g. "AI Copywriting SaaS"), `description`, `tech_stack text[]`, `asking_price`, `ttm_revenue`, `ttm_profit`, `arr`, `mrr`, `profit_margin`, `ltv`, `cac`, `assets_included text[]`, `financing_available bool`, `reason_for_selling`, `growth_opportunities`, `badges text[]` (vetted, profitable, stripe_verified), `monthly_stats jsonb` (12mo revenue/expense series), `seller_id uuid`, `status` (draft|active|sold), timestamps.
+  - Locked: `company_name`, `company_url`, `stripe_account_ref` — only readable to seller or NDA-signed buyers (enforced via a view/RPC).
+- **nda_signatures** — `id`, `listing_id`, `buyer_id`, `signed_at`, `full_name`.
+- **listing_messages** — `id`, `listing_id`, `sender_id`, `recipient_id`, `body`, `created_at`. Requires signed NDA to insert.
 
-### 1. Local dev environment
-- Keep the existing `.env` (it already has the Supabase URL + anon key).
-- Add `bun install` (or `npm install`) → `bun run dev` → Vite serves on `http://localhost:8080`.
-- Install Supabase CLI to deploy edge functions: `npm i -g supabase`, then `supabase link --project-ref iuqrxursqqqicylynxph` and `supabase functions deploy chat summarize check-subscription create-checkout customer-portal`.
+**RLS**
 
-### 2. Vercel deployment
-- Framework preset: **Vite**.
-- Build command: `bun run build` (or `npm run build`); output: `dist`.
-- Add `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_SUPABASE_PROJECT_ID` as Vercel env vars.
-- Add `vercel.json` with SPA fallback so deep links (`/chat`, `/auth`, `/pricing`) don't 404:
-  ```json
-  { "rewrites": [{ "source": "/(.*)", "destination": "/" }] }
-  ```
-- Remove `lovable-tagger` from prod build (it's already dev-only in `vite.config.ts`, so this is fine — no change needed).
+- `listings`: anyone authenticated can `SELECT` active listings; sellers manage their own drafts.
+- `nda_signatures`: buyer manages own rows; seller can read rows for their listings.
+- `listing_messages`: insert allowed only if buyer has a matching `nda_signatures` row (or is the seller); select limited to sender/recipient.
+- Locked fields: expose via `get_listing_private(listing_id)` security-definer RPC that returns company_name/url only when NDA signed or requester is the seller.
 
-### 3. Hybrid AI gateway (the only real code change)
-Refactor `supabase/functions/chat/index.ts` to pick a provider at runtime based on which secrets are set in Supabase:
+**Seed** — insert ~8 realistic mock listings covering SaaS / e-commerce / mobile with varied prices, margins, and 12-month series so the explorer looks alive out of the box.
 
-| Secret present | Provider used | Endpoint |
-|---|---|---|
-| `LOVABLE_API_KEY` | Lovable AI Gateway (current behavior) | `https://ai.gateway.lovable.dev/v1/chat/completions` |
-| `OPENAI_API_KEY` (and `LOVABLE_API_KEY` absent or model starts with `openai/`) | OpenAI direct | `https://api.openai.com/v1/chat/completions` |
-| `GEMINI_API_KEY` (and model is `flash`/`gemini`) | Google Generative Language API | `https://generativelanguage.googleapis.com/v1beta/...` |
+## 2. Routing (`src/App.tsx`)
 
-Logic:
-- Keep the existing `modelMap` (`flash`, `gemini`, `gpt-5`).
-- Add a `resolveProvider(model)` function that returns `{ url, headers, body, parseStream }`.
-- Preserve the SSE streaming shape the frontend already expects (`data: {choices:[{delta:{content}}]}\n\n`); for Gemini direct, translate its stream chunks into that shape inside the function before piping to the client.
-- All quota/usage/auth/RPC logic stays untouched.
+Add lazy routes:
 
-### 4. Secrets management
-- Local: store provider keys in Supabase project secrets (`supabase secrets set OPENAI_API_KEY=... GEMINI_API_KEY=...`). They are read by the edge function at runtime — never in the Vite `.env` and never shipped to the browser.
-- Vercel only needs the `VITE_*` Supabase vars (frontend). AI keys live on Supabase, not Vercel.
+- `/marketplace` → `Marketplace.tsx` (protected)
+- `/marketplace/:id` → `ListingDetail.tsx` (protected)
+- `/sell` → `SellWizard.tsx` (protected)
 
-### 5. Optional cleanup
-- Delete `.lovable/` directory and `lovable-tagger` dev dependency once you've fully detached (not required for things to work).
-- The `vite.config.ts` `componentTagger()` plugin is already gated to `mode === "development"`, so prod builds on Vercel are clean.
+Add a "Marketplace" link to the existing left sidebar / nav.
 
-## Files to change
+## 3. Pages & components
 
-| File | Change |
-|---|---|
-| `supabase/functions/chat/index.ts` | Add provider resolver, support OpenAI + Gemini direct as fallbacks, translate streams into OpenAI SSE shape |
-| `vercel.json` (new) | SPA rewrite rule |
-| `README.md` | Add Local Dev + Vercel + Supabase CLI sections, document required env vars and Supabase secrets |
+- `**pages/Marketplace.tsx**` — 12-col layout: left `FilterSidebar` (price range, ARR, TTM revenue, profit margin, asset type checkboxes, tech-stack multi-select, search box) + right dense grid of `ListingCard`s. Cards show category + anonymized headline, key metrics (ARR / TTM / margin), badge chips, and a "Request Access (NDA)" CTA that deep-links to the detail page. Client-side filtering over fetched active listings.
+- `**pages/ListingDetail.tsx**` — Header with headline, badges, asking price, and NDA state. Tabs (`shadcn/ui`):
+  - Overview — description, growth opportunities, reason for selling, tech-stack tokens.
+  - Financials — Recharts `ComposedChart` (revenue bars + expense line, 12mo) plus metric callout cards for ARR, Net Profit, LTV, CAC.
+  - Acquisition Terms — asking price, financing options, assets included list.
+  - Right rail: `NdaPanel` (checkbox + typed full-name + Sign button → inserts `nda_signatures`). Once signed, panel swaps to `MessageComposer` with a pre-filled prompt and thread of `listing_messages`. Locked fields render as "Locked — NDA Required" placeholders until the RPC returns real data.
+- `**pages/SellWizard.tsx**` — 3-step wizard using local state + `Progress`:
+  1. Basics (title, category, tech stack chips).
+  2. Financials (asking price, TTM revenue, TTM profit, ARR).
+  3. Description + placeholder file inputs for pitch deck / screenshots (no upload wiring yet).
+  Final submit inserts a `listings` row with `status='draft'` owned by `auth.uid()`.
+- **Shared components** under `src/components/marketplace/`: `ListingCard`, `FilterSidebar`, `MetricCallout`, `NdaPanel`, `MessageComposer`, `TechStackTokens`, `BadgeRow`.
 
-## What I will NOT touch
+## 4. Design system
 
-- Frontend code (`src/`) — works as-is on Vercel.
-- Supabase schema, RLS policies, RPCs.
-- Other edge functions (`summarize`, Stripe ones) — they don't use Lovable services.
-- Auth flow, subscriptions, chat history, compare mode, model selector UI.
+Reuse existing tokens (already slate/indigo-friendly). Add a couple of scoped utility classes for the marketplace surfaces (subtle card borders, monospaced numerics for financial figures via `font-mono tabular-nums`) inside component files — no global palette rewrite. Full dark-mode parity via existing HSL tokens.
 
-## Risks
+## 5. Out of scope (call out to user)
 
-- **Stream format translation** for Gemini direct is the only non-trivial work; it needs to match the parser in `src/lib/stream-chat.ts` exactly. Low risk because the parser already tolerates partial JSON.
-- **Cost tracking** (`PRICING` table) currently estimates against Lovable Gateway rates. If you use OpenAI/Gemini direct, the per-1M rates differ slightly — I'll leave a comment but won't change values unless you ask.
-- **Edge function deployment**: you'll need Supabase CLI locally; Lovable was doing this for you before.
+- Real file uploads (pitch deck / screenshots) — placeholders only.
+- Payments/escrow.
+- Email notifications for new messages.
+- Admin verification workflow for the "Vetted" badge (badges come from seed data / seller-supplied for now).
 
-Approve and I'll implement the hybrid `chat/index.ts`, add `vercel.json`, and update the README with the exact local + Vercel + Supabase CLI steps.
+## Technical notes
+
+- Use `@/integrations/supabase/client` for all data access.
+- Recharts is already a common dep in this stack; if missing, add via `bun add recharts`.
+- All new tables get `GRANT SELECT, INSERT, UPDATE, DELETE ... TO authenticated` + `GRANT ALL ... TO service_role`, no `anon` grants.
+- Locked-field RPC pattern avoids leaking company identity through PostgREST column selection.
+
+Let's build out the full [Acquire.com](http://Acquire.com)-inspired marketplace according to the outlined plan. Please execute the steps in order:
+
+1. Database Schema & RLS: Create the `listings`, `nda_signatures`, and `listing_messages` tables with the specified columns and RLS rules. Implement the `get_listing_private` security-definer RPC function. Seed the database with 8 highly realistic mock startups across SaaS, mobile, and e-commerce (include realistic 12-month financial arrays for the charts). Ensure proper explicit grants for `authenticated` and `service_role`.
+
+2. Navigation & Router: Register the lazy-loaded routes for `/marketplace`, `/marketplace/:id`, and `/sell` in `src/App.tsx`. Wire a clean "Marketplace" nav item into the existing left sidebar layout using the existing design tokens.
+
+3. Frontend Components & Views:
+
+   - Build `pages/Marketplace.tsx` featuring the 12-column layout, multi-variable `FilterSidebar`, and a tight data-dense grid of `ListingCard` components.
+
+   - Build `pages/ListingDetail.tsx` implementing the full UI split layout: the interactive Recharts financial charts inside the tab panels, and the conditional `NdaPanel` / `MessageComposer` workflow on the right rail.
+
+   - Build `pages/SellWizard.tsx` with the clean 3-step form wizard tracking intermediate local state and updating the `Progress` bar before writing the final draft to Supabase.
+
+Please implement all logic natively with the `@/integrations/supabase/client` library. Keep layout tweaks scoped locally within the components using Tailwind, and ensure strict dark mode parity matching the app's existing theme tokens.

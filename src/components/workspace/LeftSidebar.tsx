@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Plus, MessageSquare, Trash2, Crown, Loader2, Search, Sparkles, ChevronsLeft, Settings2, LogOut, CreditCard } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Crown, Loader2, Search, Sparkles, ChevronsLeft, Settings2, LogOut, CreditCard, Store, Compass } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -97,6 +97,24 @@ export function LeftSidebar({
         >
           <Plus className="w-4 h-4" />
           New chat
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <div className="px-2 pt-2 space-y-0.5">
+        <button
+          onClick={() => navigate("/marketplace")}
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-md text-[13px] text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <Store className="w-3.5 h-3.5" />
+          Marketplace
+        </button>
+        <button
+          onClick={() => navigate("/discover")}
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-md text-[13px] text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
+        >
+          <Compass className="w-3.5 h-3.5" />
+          Discover
         </button>
       </div>
 
