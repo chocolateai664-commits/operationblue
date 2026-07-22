@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { Plus, MessageSquare, Trash2, Crown, Loader2, Search, Sparkles, ChevronsLeft, Settings2, LogOut, CreditCard } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Crown, Loader2, Search, Sparkles, ChevronsLeft, Settings2, LogOut, CreditCard, Store, Compass } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
