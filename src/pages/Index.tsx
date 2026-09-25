@@ -14,10 +14,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessages } from "@/hooks/useMessages";
 import { useUsageTracking } from "@/hooks/useUsageTracking";
-import { streamAIResponse, ALL_MODELS, MODEL_META, StreamAbortedError, type AIModel } from "@/api/ai";
+import { streamAIResponse, ALL_MODELS, PICKER_META, StreamAbortedError, resolveModel, type AIModel, type PickerModel } from "@/api/ai";
+import { ModelPicker } from "@/components/chat/ModelPicker";
 import { checkOllamaHealth, setOllamaBase } from "@/lib/ollama";
 import { buildContextWindow, shouldGenerateSummary, messagesToSummarize, type MemoryMessage } from "@/utils/conversationMemory";
-import { Sparkles, AlertCircle, PanelLeft, PanelRight, Menu, X } from "lucide-react";
+import { AlertCircle, PanelLeft, PanelRight, Menu, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -39,12 +40,19 @@ const LS_LEFT_OPEN = "optineural:left-open";
 const LS_RIGHT_OPEN = "optineural:right-open";
 
 const Index = () => {
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const { conversations, activeId, setActiveId, createConversation, deleteConversation, updateSummary } = useConversations();
   const { messages: dbMessages, loadMessages, saveMessage, clearMessages } = useMessages();
   const { canUseAI, remainingFree, used5h, used24h, FREE_LIMIT, FREE_LIMIT_24H, resetAt, refresh: refreshUsage, isPro } = useUsageTracking();
   const navigate = useNavigate();
 
+  const userName =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    user?.email?.split("@")[0] ||
+    "You";
+
+  const [picked, setPicked] = useState<PickerModel>("auto");
   const [model, setModel] = useState<AIModel>("flash");
   const [mode, setMode] = useState<ChatMode>("single");
   const [liveEntries, setLiveEntries] = useState<LocalEntry[]>([]);
@@ -90,10 +98,10 @@ const Index = () => {
   }, [dbMessages]);
 
   useEffect(() => {
-    if (model === "ollama" || mode === "compare") {
+    if (picked === "ollama" || mode === "compare") {
       checkOllamaHealth().then(setOllamaOnline);
     }
-  }, [model, mode]);
+  }, [picked, mode]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -151,6 +159,8 @@ const Index = () => {
   const handleSend = useCallback(
     async (text: string) => {
       if (!canUseAI) return;
+      const model = resolveModel(picked, text);
+      setModel(model);
 
       let convId = activeId;
       if (!convId) {
@@ -298,11 +308,11 @@ const Index = () => {
         setIsLoading(false);
       }
     },
-    [model, mode, ollamaConfig.model, activeId, canUseAI, conversations, createConversation, saveMessage, refreshUsage, maybeGenerateSummary]
+    [picked, mode, ollamaConfig.model, activeId, canUseAI, conversations, createConversation, saveMessage, refreshUsage, maybeGenerateSummary]
   );
 
   const showUpgrade = !canUseAI;
-  const meta = MODEL_META[model];
+  const pickedMeta = PICKER_META[picked];
 
   const sidebarNode = (
     <LeftSidebar
@@ -312,8 +322,7 @@ const Index = () => {
       onNew={handleNewChat}
       onDelete={deleteConversation}
       isPro={isPro}
-      selectedModel={model}
-      onSelectModel={setModel}
+      userName={userName}
       onCollapse={() => setLeftOpen(false)}
       onSignOut={signOut}
     />
@@ -359,16 +368,10 @@ const Index = () => {
               <PanelLeft className="w-4 h-4" />
             </button>
           )}
-          <div className="hidden sm:flex items-center gap-2 ml-1">
-            <span className={cn("w-1.5 h-1.5 rounded-full", meta.colorClass)} />
-            <span className="text-[12px] font-medium text-foreground/90">{meta.label}</span>
-            <span className="text-[11px] text-muted-foreground">·</span>
-            <span className="text-[11px] text-muted-foreground">
-              {activeId
-                ? conversations.find((c) => c.id === activeId)?.title ?? "Chat"
-                : "New conversation"}
-            </span>
-          </div>
+          <ModelPicker value={picked} onChange={setPicked} />
+          <span className="hidden sm:inline text-[12px] text-muted-foreground truncate max-w-[240px] ml-1">
+            {activeId ? conversations.find((c) => c.id === activeId)?.title ?? "Chat" : "New conversation"}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -398,7 +401,7 @@ const Index = () => {
       </header>
 
       {/* Ollama banner */}
-      {model === "ollama" && ollamaOnline === false && (
+      {picked === "ollama" && ollamaOnline === false && (
         <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-destructive text-xs">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>
@@ -417,17 +420,10 @@ const Index = () => {
               transition={{ duration: 0.4, ease: "easeOut" }}
               className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-5 py-12"
             >
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-primary-glow/20 blur-2xl rounded-full" />
-                <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-glow">
-                  <Sparkles className="w-7 h-7 text-primary-foreground" />
-                </div>
-              </div>
+              <span className="text-primary text-4xl leading-none" aria-hidden>✦</span>
               <div className="space-y-2">
-                <h1 className="text-2xl font-semibold tracking-tight text-balance">What can I help you build?</h1>
-                <p className="text-sm text-muted-foreground max-w-md text-balance">
-                  Choose a model, pick single or compare mode, and start a conversation.
-                </p>
+                <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-balance">What will you create?</h1>
+                <p className="text-sm text-muted-foreground max-w-md text-balance">Build something with AI.</p>
               </div>
               <div className="flex flex-wrap justify-center gap-2 mt-2 max-w-xl">
                 {[
@@ -491,7 +487,7 @@ const Index = () => {
               ? "Pro · unlimited messages"
               : `${remainingFree} of ${FREE_LIMIT} messages left in this 5h window`}
             {" · "}
-            <span className="font-mono">{meta.label}</span>
+            <span className="font-mono">{picked === "auto" ? `Auto → ${PICKER_META[model].label}` : pickedMeta.label}</span>
           </p>
         </div>
       </div>
